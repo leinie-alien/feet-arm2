@@ -1,0 +1,7 @@
+# Request: 期望切换到的模式名称 (如 "idle", "moving", "loaded")
+string mode
+---
+# Response: 是否切换成功
+bool success
+# 备用信息：如切换失败的原因
+string message
