@@ -15,6 +15,8 @@ READY_TIMEOUT=10
 DRIVER_PID=""
 INVERSE_DYNAMICS_PID=""
 CLEANUP_RUNNING=0
+ROS2_DAEMON_PATTERN='[r]os2cli\.daemon\.daemonize.*--name ros2-daemon'
+declare -a ROS2_DAEMON_PIDS_BEFORE=()
 
 usage() {
     cat <<USAGE
@@ -68,6 +70,40 @@ launch_in_group() {
     printf -v "${__resultvar}" '%s' "${pid}"
 }
 
+record_existing_ros2_daemons() {
+    mapfile -t ROS2_DAEMON_PIDS_BEFORE < <(pgrep -f "${ROS2_DAEMON_PATTERN}" || true)
+}
+
+stop_new_ros2_daemons() {
+    local -a current_pids=()
+    mapfile -t current_pids < <(pgrep -f "${ROS2_DAEMON_PATTERN}" || true)
+
+    for pid in "${current_pids[@]}"; do
+        local seen_before=0
+        for old_pid in "${ROS2_DAEMON_PIDS_BEFORE[@]}"; do
+            if [[ "${pid}" == "${old_pid}" ]]; then
+                seen_before=1
+                break
+            fi
+        done
+
+        if (( ! seen_before )); then
+            echo "[INFO] Stopping ros2-daemon (pid=${pid})"
+            kill -TERM "${pid}" 2>/dev/null || true
+            for _ in $(seq 1 20); do
+                if ! kill -0 "${pid}" 2>/dev/null; then
+                    break
+                fi
+                sleep 0.1
+            done
+            if kill -0 "${pid}" 2>/dev/null; then
+                echo "[WARN] ros2-daemon did not stop after SIGTERM; sending SIGKILL to pid ${pid}"
+                kill -KILL "${pid}" 2>/dev/null || true
+            fi
+        fi
+    done
+}
+
 cleanup() {
     if (( CLEANUP_RUNNING )); then
         return
@@ -86,6 +122,8 @@ cleanup() {
     for i in "${!pids[@]}"; do
         stop_process_group "${pids[$i]}" "${names[$i]}"
     done
+
+    stop_new_ros2_daemons
 }
 
 source_setup() {
@@ -171,6 +209,7 @@ cd "${SCRIPT_DIR}"
 
 source_setup "${ROS_SETUP}"
 source_setup "${WS_SETUP}"
+record_existing_ros2_daemons
 
 echo "[INFO] arm2_task params: ${ARM_PARAMS_FILE}"
 echo "[INFO] driver params: ${DRIVER_PARAMS_FILE}"
