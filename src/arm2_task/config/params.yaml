@@ -21,16 +21,16 @@
     gains:
       #2. 纯重力补偿模式 (GRAVITY_COMP): 极低 PD,主要靠动力学模型抵消重力,实现“透明”手感或零力示教
       gravity_comp:
-        kd: [2.8, 4.5, 2.5, 1.2, 0.1]
-        kp: [5.0, 10.5, 5.0, 2.2, 0.1]
+        kd: [1.0, 2.5, 1.5, 0.2, 0.02]
+        kp: [2.0, 8.5, 3.0, 1.2, 0.1]
       # 1. 待机模式 (IDLE): 低增益，防止电机高频振动发热，允许手动推过
       idle:
         kd: [0.5, 0.5, 0.5, 0.2, 0.1]
         kp: [1.0, 2.0, 1.0, 0.5, 0.0]
       #4. 负载模式 (LOADED): 高增益，应对抓取 500g 负载后的惯量增加，提高刚性减少静差
       loaded:
-        kd: [1.0, 2.0, 2.0, 0.2, 0.1]
-        kp: [2.0, 10.0, 5.0, 1.5, 0.6]
+        kd: [1.0, 8.0, 5.0, 3.2, 0.1]
+        kp: [5.0, 20.0, 15.0, 8.5, 0.6]
       #3. 运动模式 (MOVING): 标准增益，兼顾响应速度和稳定性，用于瞭望、俯瞰等空载移动
       moving:
         kd: [1.0, 4.0, 1.5, 0.1, 0.1]
@@ -45,7 +45,8 @@
     payload_management:
       # 负载的物理属性 (用于 setPayloadState)
       box_dim: 0.25
-      com_offset: [0.2219, 0.0, 0.0]
+      # 默认值：按 URDF 的 Link_5 局部坐标系，负载沿末端 +Z 方向延伸。
+      com_offset: [0.0, 0.0, 0.2219]
       estimation_joint_index: 1.0
       expected_mass: 0.5
       identification_time: 0.2
@@ -97,6 +98,7 @@
       command_topic: /arm2/_lowCmd/command
       ready_topic: /robot_driver/ready
       mode_service: set_controller_mode
+      payload_service: set_payload_state
       control_rate_hz: 100.0
       target_timeout_sec: 0.25
       target_qos_depth: 10
@@ -107,6 +109,10 @@
       angle_window_upper: [3.14159265, 3.5, 0.15, 1.57, 3.14159265]
       command_velocity_limits: [2.0, 1.5, 2.0, 2.0, 3.0]
       command_torque_limits: [8.0, 20.0, 8.0, 8.0, 4.0]
+    gravity_comp_test:
+      enable_payload_service: false
+      payload_service: set_payload_state
+      gains_mode: gravity_comp
     inverse_dynamics_test:
       target_topic: /joint_target_state
       state_topic: /arm2/_lowState/joint

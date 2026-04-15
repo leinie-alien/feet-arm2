@@ -12,6 +12,7 @@
 #include "std_msgs/msg/bool.hpp"
 #include "robot_msgs/msg/robot_command.hpp"
 #include "robot_msgs/msg/robot_state.hpp"
+#include "robot_msgs/srv/set_payload_state.hpp"
 
 #include "arm2_task/dynamics_manager.hpp"
 #include "ament_index_cpp/get_package_share_directory.hpp"
@@ -31,8 +32,14 @@ public:
         auto fv = this->declare_parameter("dynamics.friction.fv", std::vector<double>(5, 0.0));
         auto ratios = this->declare_parameter("dynamics.friction.GearRatio", std::vector<double>(5, 1.0));
         auto alpha = this->declare_parameter("dynamics.friction.alpha", 100.0);
-        kp_ = this->declare_parameter("gains.gravity_comp.kp", std::vector<double>(5, 0.0));
-        kd_ = this->declare_parameter("gains.gravity_comp.kd", std::vector<double>(5, 0.0));
+        gains_mode_ =
+            this->declare_parameter("gravity_comp_test.gains_mode", std::string("gravity_comp"));
+        kp_ = this->declare_parameter("gains." + gains_mode_ + ".kp", std::vector<double>(5, 0.0));
+        kd_ = this->declare_parameter("gains." + gains_mode_ + ".kd", std::vector<double>(5, 0.0));
+        enable_payload_service_ =
+            this->declare_parameter("gravity_comp_test.enable_payload_service", false);
+        payload_service_name_ =
+            this->declare_parameter("gravity_comp_test.payload_service", "set_payload_state");
 
         dyn_manager_ = std::make_unique<arm2_task::DynamicsManager>(urdf);
         dyn_manager_->initParams(fc, fv, ratios, alpha);
@@ -79,15 +86,31 @@ public:
                 }
             });
 
+        if (enable_payload_service_) {
+            payload_service_ = this->create_service<robot_msgs::srv::SetPayloadState>(
+                payload_service_name_,
+                std::bind(
+                    &GravityCompTestNode::handle_payload_state,
+                    this,
+                    std::placeholders::_1,
+                    std::placeholders::_2));
+        }
+
         timer_ = this->create_wall_timer(10ms, std::bind(&GravityCompTestNode::control_loop, this));
         debug_timer_ = this->create_wall_timer(1s, std::bind(&GravityCompTestNode::debug_summary, this));
 
         RCLCPP_INFO(this->get_logger(), "Gravity compensation test node started.");
         RCLCPP_INFO(
             this->get_logger(),
-            "Gravity compensation PD gains: kp=%s, kd=%s",
+            "Gravity compensation PD gains (%s): kp=%s, kd=%s",
+            gains_mode_.c_str(),
             format_std_vector(kp_).c_str(),
             format_std_vector(kd_).c_str());
+        RCLCPP_INFO(
+            this->get_logger(),
+            "Gravity compensation payload service: %s%s",
+            enable_payload_service_ ? "enabled on " : "disabled",
+            enable_payload_service_ ? payload_service_name_.c_str() : "");
     }
 
 private:
@@ -268,6 +291,36 @@ private:
         command_pub_->publish(msg);
     }
 
+    void handle_payload_state(
+        const std::shared_ptr<robot_msgs::srv::SetPayloadState::Request> request,
+        std::shared_ptr<robot_msgs::srv::SetPayloadState::Response> response)
+    {
+        if (!std::isfinite(request->mass) || request->mass < 0.0) {
+            response->success = false;
+            response->message = "Invalid payload mass.";
+            return;
+        }
+
+        Eigen::Vector3d com(request->com[0], request->com[1], request->com[2]);
+        if (!std::isfinite(com[0]) || !std::isfinite(com[1]) || !std::isfinite(com[2])) {
+            response->success = false;
+            response->message = "Invalid payload COM.";
+            return;
+        }
+
+        dyn_manager_->setPayloadState(request->has_load, request->mass, com);
+        response->success = true;
+        response->message = request->has_load ? "Payload model enabled." : "Payload model cleared.";
+        RCLCPP_INFO(
+            this->get_logger(),
+            "Gravity compensation payload updated: has_load=%s mass=%.4f com=[%.4f, %.4f, %.4f]",
+            request->has_load ? "true" : "false",
+            request->mass,
+            com[0],
+            com[1],
+            com[2]);
+    }
+
     void debug_summary()
     {
         const rclcpp::Time now = this->now();
@@ -318,6 +371,9 @@ private:
     std::mutex data_mutex_;
     bool driver_ready_{false};
     bool has_data_{false};
+    bool enable_payload_service_{false};
+    std::string gains_mode_;
+    std::string payload_service_name_;
     std::vector<double> kp_;
     std::vector<double> kd_;
     Eigen::VectorXd current_q_;
@@ -339,6 +395,7 @@ private:
     rclcpp::Subscription<robot_msgs::msg::RobotState>::SharedPtr state_sub_;
     rclcpp::Subscription<std_msgs::msg::Bool>::SharedPtr driver_ready_sub_;
     rclcpp::Publisher<robot_msgs::msg::RobotCommand>::SharedPtr command_pub_;
+    rclcpp::Service<robot_msgs::srv::SetPayloadState>::SharedPtr payload_service_;
     rclcpp::TimerBase::SharedPtr timer_;
     rclcpp::TimerBase::SharedPtr debug_timer_;
 };

@@ -4,6 +4,7 @@
 #include <pinocchio/algorithm/frames.hpp>
 #include <pinocchio/parsers/urdf.hpp>
 #include <iostream>
+#include <stdexcept>
 
 namespace arm2_task {
 
@@ -12,11 +13,16 @@ DynamicsManager::DynamicsManager(const std::string& urdf_path) {
     pinocchio::urdf::buildModel(urdf_path, model_);
     data_ = pinocchio::Data(model_);
     
-    // 假设末端执行器连接在 Link_5
-    last_link_idx_ = model_.getBodyId("Link_5");
-    if (last_link_idx_ < model_.inertias.size()) {
-        original_inertia_ = model_.inertias[last_link_idx_];
+    // 负载的物理惯量需要挂到 Link_5 对应 BODY frame 的父关节上。
+    last_link_body_frame_idx_ = model_.getBodyId("Link_5");
+    if (last_link_body_frame_idx_ >= model_.frames.size()) {
+        throw std::runtime_error("Invalid BODY frame index for Link_5.");
     }
+    payload_joint_idx_ = model_.frames[last_link_body_frame_idx_].parentJoint;
+    if (payload_joint_idx_ <= 0 || payload_joint_idx_ >= model_.inertias.size()) {
+        throw std::runtime_error("Invalid parent joint index for Link_5 payload inertia.");
+    }
+    original_inertia_ = model_.inertias[payload_joint_idx_];
 
     friction_configs_.resize(model_.nv);
 }
@@ -42,9 +48,9 @@ void DynamicsManager::setPayloadState(bool has_load, double mass, const Eigen::V
         
         pinocchio::Inertia load_inertia(mass, com, inertia_mat);
         // 惯量叠加
-        model_.inertias[last_link_idx_] = original_inertia_ + load_inertia;
+        model_.inertias[payload_joint_idx_] = original_inertia_ + load_inertia;
     } else {
-        model_.inertias[last_link_idx_] = original_inertia_;
+        model_.inertias[payload_joint_idx_] = original_inertia_;
     }
 }
 
@@ -54,14 +60,14 @@ double DynamicsManager::estimatePayloadMass(const JointState& actual_state) {
     Eigen::VectorXd zero_v = Eigen::VectorXd::Zero(model_.nv);
     
     // 临时恢复空载惯量模型以计算基准重力矩
-    pinocchio::Inertia current_tmp = model_.inertias[last_link_idx_];
-    model_.inertias[last_link_idx_] = original_inertia_;
+    pinocchio::Inertia current_tmp = model_.inertias[payload_joint_idx_];
+    model_.inertias[payload_joint_idx_] = original_inertia_;
     
     // 使用 RNEA 计算空载状态下的重力项
     Eigen::VectorXd tau_gravity_empty = pinocchio::rnea(model_, data_, actual_state.q, zero_v, zero_v);
     
     // 2. 立即恢复模型状态，确保后续计算一致性
-    model_.inertias[last_link_idx_] = current_tmp;
+    model_.inertias[payload_joint_idx_] = current_tmp;
 
     // 3. 计算力矩残差
     // 残差 = 实际观测到的力矩 - 预测的空载重力矩 - 预测的摩擦力矩

@@ -14,13 +14,18 @@
 #include <eigen3/Eigen/Dense>
 
 #include "ament_index_cpp/get_package_share_directory.hpp"
+#include "geometry_msgs/msg/transform_stamped.hpp"
 #include "rclcpp/rclcpp.hpp"
 #include "robot_msgs/msg/robot_command.hpp"
 #include "robot_msgs/msg/robot_state.hpp"
 #include "robot_msgs/srv/set_controller_mode.hpp"
+#include "robot_msgs/srv/set_payload_state.hpp"
 #include "std_msgs/msg/bool.hpp"
+#include "tf2_ros/static_transform_broadcaster.h"
+#include "tf2_ros/transform_broadcaster.h"
 
 #include "arm2_task/dynamics_manager.hpp"
+#include "arm2_task/kinematics_engine.hpp"
 
 using namespace std::chrono_literals;
 
@@ -32,6 +37,10 @@ public:
         std::string share_dir = ament_index_cpp::get_package_share_directory("arm2_task");
         std::string rel_urdf_path = this->declare_parameter("urdf_path", "urdf/arm2.urdf");
         std::string urdf = share_dir + "/" + rel_urdf_path;
+        double l1 = this->declare_parameter("robot_geometry.l1", 0.0845);
+        double l2 = this->declare_parameter("robot_geometry.l2", 0.350005);
+        double l3 = this->declare_parameter("robot_geometry.l3", 0.243441);
+        double l4 = this->declare_parameter("robot_geometry.l4", 0.046);
 
         state_topic_ =
             this->declare_parameter("inverse_dynamics.state_topic", "/arm2/_lowState/joint");
@@ -43,6 +52,8 @@ public:
             this->declare_parameter("inverse_dynamics.ready_topic", "/robot_driver/ready");
         mode_service_name_ =
             this->declare_parameter("inverse_dynamics.mode_service", "set_controller_mode");
+        payload_service_name_ =
+            this->declare_parameter("inverse_dynamics.payload_service", "set_payload_state");
         control_rate_hz_ = this->declare_parameter("inverse_dynamics.control_rate_hz", 100.0);
         hold_position_on_startup_ =
             this->declare_parameter("inverse_dynamics.hold_position_on_startup", true);
@@ -116,8 +127,14 @@ public:
             target_qos_depth_ = 1;
         }
 
+        kin_engine_ = std::make_unique<arm2_task::KinematicsEngine>(
+            urdf,
+            arm2_task::RobotGeometry(l1, l2, l3, l4));
         dyn_manager_ = std::make_unique<arm2_task::DynamicsManager>(urdf);
         dyn_manager_->initParams(fc, fv, ratios, alpha);
+        tf_broadcaster_ = std::make_unique<tf2_ros::TransformBroadcaster>(*this);
+        static_tf_broadcaster_ =
+            std::make_unique<tf2_ros::StaticTransformBroadcaster>(*this);
 
         current_q_ = Eigen::VectorXd::Zero(kDof);
         current_dq_ = Eigen::VectorXd::Zero(kDof);
@@ -137,6 +154,7 @@ public:
         }
         current_mode_ = default_mode_;
         current_gains_ = gains_map_[current_mode_];
+        publish_static_camera_tf();
 
         auto state_qos = rclcpp::QoS(rclcpp::KeepLast(1)).best_effort().durability_volatile();
         auto target_qos = rclcpp::QoS(rclcpp::KeepLast(static_cast<size_t>(target_qos_depth_)))
@@ -169,6 +187,13 @@ public:
                 this,
                 std::placeholders::_1,
                 std::placeholders::_2));
+        payload_service_ = this->create_service<robot_msgs::srv::SetPayloadState>(
+            payload_service_name_,
+            std::bind(
+                &InverseDynamicsNode::handle_payload_state,
+                this,
+                std::placeholders::_1,
+                std::placeholders::_2));
 
         const auto period = std::chrono::duration<double>(1.0 / control_rate_hz_);
         control_timer_ = this->create_wall_timer(
@@ -177,12 +202,13 @@ public:
 
         RCLCPP_INFO(
             this->get_logger(),
-            "Inverse dynamics node started. target_topic=%s state_topic=%s command_topic=%s ready_topic=%s mode=%s rate=%.1fHz target_timeout=%.3fs target_qos=reliable/%d hold_startup=%s",
+            "Inverse dynamics node started. target_topic=%s state_topic=%s command_topic=%s ready_topic=%s mode=%s payload_service=%s rate=%.1fHz target_timeout=%.3fs target_qos=reliable/%d hold_startup=%s",
             target_topic_.c_str(),
             state_topic_.c_str(),
             command_topic_.c_str(),
             ready_topic_.c_str(),
             current_mode_.c_str(),
+            payload_service_name_.c_str(),
             control_rate_hz_,
             target_timeout_sec_,
             target_qos_depth_,
@@ -433,6 +459,7 @@ private:
             return;
         }
 
+        Eigen::VectorXd q_snapshot = measured_state.q;
         std::lock_guard<std::mutex> lock(data_mutex_);
         current_q_ = measured_state.q;
         current_dq_ = measured_state.dq;
@@ -450,6 +477,22 @@ private:
                 this->get_logger(),
                 "Initialized desired state from measured joint state so the node can hold position.");
         }
+
+        // Mirror control_node: publish world -> Link_4 from the latest measured joint state.
+        pinocchio::SE3 T_w_l4 = kin_engine_->forwardKinematics(q_snapshot);
+        geometry_msgs::msg::TransformStamped t;
+        t.header.stamp = this->get_clock()->now();
+        t.header.frame_id = "world";
+        t.child_frame_id = "Link_4";
+        t.transform.translation.x = T_w_l4.translation()(0);
+        t.transform.translation.y = T_w_l4.translation()(1);
+        t.transform.translation.z = T_w_l4.translation()(2);
+        Eigen::Quaterniond q_rot(T_w_l4.rotation());
+        t.transform.rotation.x = q_rot.x();
+        t.transform.rotation.y = q_rot.y();
+        t.transform.rotation.z = q_rot.z();
+        t.transform.rotation.w = q_rot.w();
+        tf_broadcaster_->sendTransform(t);
     }
 
     void target_state_callback(const robot_msgs::msg::RobotState::SharedPtr msg)
@@ -525,6 +568,36 @@ private:
         response->success = true;
         response->message = "Mode switched to: " + request->mode;
         RCLCPP_INFO(this->get_logger(), "%s", response->message.c_str());
+    }
+
+    void handle_payload_state(
+        const std::shared_ptr<robot_msgs::srv::SetPayloadState::Request> request,
+        std::shared_ptr<robot_msgs::srv::SetPayloadState::Response> response)
+    {
+        if (!std::isfinite(request->mass) || request->mass < 0.0) {
+            response->success = false;
+            response->message = "Invalid payload mass.";
+            return;
+        }
+
+        Eigen::Vector3d com(request->com[0], request->com[1], request->com[2]);
+        if (!std::isfinite(com[0]) || !std::isfinite(com[1]) || !std::isfinite(com[2])) {
+            response->success = false;
+            response->message = "Invalid payload COM.";
+            return;
+        }
+
+        dyn_manager_->setPayloadState(request->has_load, request->mass, com);
+        response->success = true;
+        response->message = request->has_load ? "Payload model enabled." : "Payload model cleared.";
+        RCLCPP_INFO(
+            this->get_logger(),
+            "Payload state updated: has_load=%s mass=%.4f com=[%.4f, %.4f, %.4f]",
+            request->has_load ? "true" : "false",
+            request->mass,
+            com[0],
+            com[1],
+            com[2]);
     }
 
     bool is_teach_drag_mode(const std::string & mode_name) const
@@ -733,6 +806,7 @@ private:
     std::string command_topic_;
     std::string ready_topic_;
     std::string mode_service_name_;
+    std::string payload_service_name_;
     std::string default_mode_;
     double control_rate_hz_{100.0};
     double target_timeout_sec_{0.25};
@@ -743,15 +817,41 @@ private:
     std::vector<double> command_velocity_limits_;
     std::vector<double> command_torque_limits_;
 
+    std::unique_ptr<arm2_task::KinematicsEngine> kin_engine_;
     std::unique_ptr<arm2_task::DynamicsManager> dyn_manager_;
+    std::unique_ptr<tf2_ros::TransformBroadcaster> tf_broadcaster_;
+    std::unique_ptr<tf2_ros::StaticTransformBroadcaster> static_tf_broadcaster_;
 
     rclcpp::Subscription<robot_msgs::msg::RobotState>::SharedPtr measured_state_sub_;
     rclcpp::Subscription<robot_msgs::msg::RobotState>::SharedPtr target_state_sub_;
     rclcpp::Subscription<std_msgs::msg::Bool>::SharedPtr driver_ready_sub_;
     rclcpp::Publisher<robot_msgs::msg::RobotCommand>::SharedPtr command_pub_;
     rclcpp::Service<robot_msgs::srv::SetControllerMode>::SharedPtr mode_service_;
+    rclcpp::Service<robot_msgs::srv::SetPayloadState>::SharedPtr payload_service_;
     rclcpp::TimerBase::SharedPtr control_timer_;
+
+    void publish_static_camera_tf();
 };
+
+void InverseDynamicsNode::publish_static_camera_tf()
+{
+    geometry_msgs::msg::TransformStamped t;
+    t.header.stamp = this->get_clock()->now();
+    t.header.frame_id = "Link_4";
+    t.child_frame_id = "camera_link";
+    auto pos =
+        this->declare_parameter("camera_extrinsics.pos", std::vector<double>{0.05, 0.0, 0.02});
+    auto quat =
+        this->declare_parameter("camera_extrinsics.quat", std::vector<double>{0.0, 0.0, 0.0, 1.0});
+    t.transform.translation.x = pos[0];
+    t.transform.translation.y = pos[1];
+    t.transform.translation.z = pos[2];
+    t.transform.rotation.x = quat[0];
+    t.transform.rotation.y = quat[1];
+    t.transform.rotation.z = quat[2];
+    t.transform.rotation.w = quat[3];
+    static_tf_broadcaster_->sendTransform(t);
+}
 
 int main(int argc, char ** argv)
 {

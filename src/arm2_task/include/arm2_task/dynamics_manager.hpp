@@ -23,7 +23,7 @@ public:
     /**
      * @brief 动态设置负载状态（500g正方体）
      */
-    void setPayloadState(bool has_load, double mass = 0.5, const Eigen::Vector3d& com = Eigen::Vector3d(0.2219, 0, 0));
+    void setPayloadState(bool has_load, double mass = 0.5, const Eigen::Vector3d& com = Eigen::Vector3d(0, 0, 0.2219));
 
     /**
      * @brief 抓取后静态检测：根据力矩残差估计负载质量
@@ -44,8 +44,9 @@ private:
     std::vector<arm2_task::FrictionParams> friction_configs_;
     
     // 负载管理私有变量
-    int last_link_idx_;                   // 末端连杆索引
-    pinocchio::Inertia original_inertia_; // 缓存原始 URDF 惯量
+    pinocchio::FrameIndex last_link_body_frame_idx_; // 末端连杆对应的 BODY frame 索引
+    pinocchio::JointIndex payload_joint_idx_;        // 承载末端负载惯量的父关节索引
+    pinocchio::Inertia original_inertia_;            // 缓存原始 URDF 惯量
 };
 
 } // namespace arm2_task
