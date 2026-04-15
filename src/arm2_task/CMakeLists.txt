@@ -83,6 +83,14 @@ ament_target_dependencies(inverse_dynamics_node
   ament_index_cpp
 )
 
+add_executable(trajectory_planner_node src/trajectory_planner_node.cpp)
+ament_target_dependencies(trajectory_planner_node
+  rclcpp
+  robot_msgs
+  std_msgs
+  rclcpp_action
+)
+
 add_executable(inverse_dynamics_target_test_node src/inverse_dynamics_target_test_node.cpp)
 ament_target_dependencies(inverse_dynamics_target_test_node
   rclcpp
@@ -115,6 +123,7 @@ install(TARGETS
   task_node
   gravity_comp_test_node
   inverse_dynamics_node
+  trajectory_planner_node
   inverse_dynamics_target_test_node
   teach_pendant_follow_node
   DESTINATION lib/${PROJECT_NAME}

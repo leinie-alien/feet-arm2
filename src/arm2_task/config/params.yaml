@@ -65,9 +65,19 @@
       l4: 0.046
     # 轨迹规划参数
     trajectory_planner:
+      state_topic: /arm2/_lowState/joint
+      target_topic: /joint_target_state
+      ready_topic: /robot_driver/ready
+      action_name: move_joint
+      publish_rate_hz: 100.0
+      target_qos_depth: 10
+      min_segment_duration: 0.3
+      log_targets: false
       dist_threshold: 0.05
       max_acceleration: 1.2
       max_velocity: 0.8
+    task:
+      require_payload_service: false
     teach_pendant:
       topic: /joint_states
       target_topic: /joint_target_state
@@ -105,8 +115,8 @@
       hold_position_on_startup: true
       default_mode: moving
       log_input: false
-      angle_window_lower: [-3.14159265, -0.5, -3.0, -2.0, -3.14159265]
-      angle_window_upper: [3.14159265, 3.5, 0.15, 1.57, 3.14159265]
+      angle_window_lower: [-3.2, -0.5, -3.0, -2.0, -3.14159265]
+      angle_window_upper: [3.2, 3.5, 0.15, 1.57, 3.14159265]
       command_velocity_limits: [2.0, 1.5, 2.0, 2.0, 3.0]
       command_torque_limits: [8.0, 20.0, 8.0, 8.0, 4.0]
     gravity_comp_test:

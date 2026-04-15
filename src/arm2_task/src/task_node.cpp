@@ -56,6 +56,8 @@ public:
         max_v_ = this->declare_parameter("trajectory_planner.max_velocity", 1.0);
         max_a_ = this->declare_parameter("trajectory_planner.max_acceleration", 2.0);
         dist_threshold_ = this->declare_parameter("trajectory_planner.dist_threshold", 0.1);
+        require_payload_service_ =
+            this->declare_parameter("task.require_payload_service", false);
 
         // 2. 初始化逆解引擎
         kin_engine_ = std::make_unique<arm2_task::KinematicsEngine>(
@@ -222,7 +224,8 @@ private:
         while (rclcpp::ok())
         {
             const bool mode_ready = mode_client_->wait_for_service(500ms);
-            const bool payload_ready = payload_client_->wait_for_service(500ms);
+            const bool payload_ready =
+                !require_payload_service_ || payload_client_->wait_for_service(500ms);
             const bool suction_ready = suction_client_->wait_for_service(500ms);
             const bool action_ready = move_joint_client_->wait_for_action_server(500ms);
 
@@ -519,7 +522,7 @@ private:
                 RCLCPP_INFO(this->get_logger(), ">>> Step 3: IK Grasping...");
                 request_mode_switch("moving");
 
-                q_ << 180, 90, -90, -90, 0;
+                q_ << 178, 90, -90, -90, 0;
                 for (int i = 0; i < q_.size(); ++i)
                 {
                     // 角度转弧度公式：弧度 = 角度 * (π / 180)
@@ -620,6 +623,7 @@ private:
     double max_v_ = 1.0;
     double max_a_ = 1.0;
     double dist_threshold_ = 0.05;
+    bool require_payload_service_{false};
     std::atomic<bool> ik_success_ = true;
     std::atomic<bool> is_mass_updated_ = false;
     std::atomic<bool> is_pose_updated_ = false;
