@@ -139,6 +139,26 @@ source_setup() {
     set -u
 }
 
+assert_binary_runnable() {
+    local binary="$1"
+    local label="$2"
+    local -a missing_libs=()
+
+    if [[ ! -e "${binary}" ]]; then
+        echo "[ERROR] ${label} executable not found: ${binary}" >&2
+        return 1
+    fi
+
+    mapfile -t missing_libs < <(ldd "${binary}" 2>&1 | awk '/=> not found/ { print $1 }' || true)
+    if (( ${#missing_libs[@]} > 0 )); then
+        echo "[ERROR] ${label} has unresolved shared library dependencies:" >&2
+        echo "        ${binary}" >&2
+        printf '        %s\n' "${missing_libs[@]}" >&2
+        echo "[ERROR] Rebuild the affected package(s) against the current environment before launching the teach pendant stack." >&2
+        return 1
+    fi
+}
+
 extract_teach_port() {
     local config_file="$1"
     sed -n "s/^[[:space:]]*port:[[:space:]]*['\"]\\{0,1\\}\\([^'\"]*\\)['\"]\\{0,1\\}[[:space:]]*$/\\1/p" "${config_file}" | head -n 1
@@ -292,6 +312,9 @@ cd "${SCRIPT_DIR}"
 source_setup "${ROS_SETUP}"
 source_setup "${WS_SETUP}"
 record_existing_ros2_daemons
+
+assert_binary_runnable "${SCRIPT_DIR}/install/ftservo_hls3625_teach/lib/ftservo_hls3625_teach/bus_state_publisher" "bus_state_publisher"
+assert_binary_runnable "${SCRIPT_DIR}/install/arm2_task/lib/arm2_task/teach_pendant_follow_node" "teach_pendant_follow_node"
 
 echo "[INFO] arm2_task params: ${ARM_PARAMS_FILE}"
 echo "[INFO] teach config: ${TEACH_CONFIG_FILE}"

@@ -115,7 +115,7 @@ public:
     auto motor_tmax = declare_parameter<std::vector<double>>(
       "motor_tmax", std::vector<double>{10.0, 28.0, 10.0, 10.0, 5.0});
     auto joint_zero_offsets = declare_parameter<std::vector<double>>(
-      "joint_zero_offsets", std::vector<double>{-0.02, 0.14, 0.1, 0.795, 0.0});
+      "joint_zero_offsets", std::vector<double>{-0.02, 0.14, 0.1, 0.361, 0.0});
     auto joint2_publish_window = declare_parameter<std::vector<double>>(
       "joint2_publish_window", std::vector<double>{-0.5, 3.5});
     q_jump_threshold_rad_ = declare_parameter<double>("q_jump_threshold_rad", kDefaultQJumpThresholdRad);

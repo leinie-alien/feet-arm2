@@ -1,10 +1,14 @@
+#include <algorithm>
 #include <chrono>
 #include <atomic>
+#include <cerrno>
 #include <memory>
 #include <string>
 #include <Eigen/Dense>
 #include <mutex>
+#include <poll.h>
 #include <thread>
+#include <unistd.h>
 #include <limits>
 
 #include "rclcpp/rclcpp.hpp"
@@ -58,6 +62,8 @@ public:
         dist_threshold_ = this->declare_parameter("trajectory_planner.dist_threshold", 0.1);
         require_payload_service_ =
             this->declare_parameter("task.require_payload_service", false);
+        require_suction_service_ =
+            this->declare_parameter("task.require_suction_service", false);
 
         // 2. 初始化逆解引擎
         kin_engine_ = std::make_unique<arm2_task::KinematicsEngine>(
@@ -81,11 +87,11 @@ public:
                 {
                     if (!msg->motor_state[i].valid)
                     {
-                        RCLCPP_WARN_THROTTLE(
-                            this->get_logger(),
-                            *this->get_clock(),
-                            1000,
-                            "Ignore stale/invalid robot state message.");
+                       // RCLCPP_INFO_THROTTLE(
+                        //    this->get_logger(),
+                        //    *this->get_clock(),
+                        //    1000,
+                        //    "Ignore stale/invalid robot state message.");
                         return;
                     }
                 }
@@ -125,8 +131,11 @@ public:
 
     ~TaskNode()
     {
+        is_running_.store(false);
         if (task_thread_.joinable())
+        {
             task_thread_.join();
+        }
     }
 
     // 在 TaskNode 类中添加
@@ -136,52 +145,69 @@ public:
     }
 
     // 1. 发送复位请求
-    void request_reset()
+    bool request_reset()
     {
         if (presets_.count("reset"))
         {
             auto goal_q = presets_["reset"];
-            send_move_goal({goal_q});
+            return send_move_goal({goal_q});
         }
-        else
-        {
-            RCLCPP_ERROR(this->get_logger(), "Preset 'reset' not found!");
-        }
+
+        RCLCPP_ERROR(this->get_logger(), "Preset 'reset' not found!");
+        return false;
     }
 
-    void look_out_action(geometry_msgs::msg::Pose target_world_pose)
+    bool look_at_action(const geometry_msgs::msg::Pose &target_world_pose)
     {
-        if (presets_.count("look_out"))
+        if (presets_.count("look_at"))
         {
-            auto goal_q = presets_["look_out"];
-            goal_q[0] = std::atan2(target_world_pose.position.y, target_world_pose.position.x); // 重新计算底座旋转角
+            auto goal_q = presets_["look_at"];
+            goal_q[0] =
+                std::atan2(target_world_pose.position.y, target_world_pose.position.x);
             auto link4_pose = kin_engine_->forwardKinematics(goal_q);
-            goal_q[4] = std::atan2(target_world_pose.position.z - link4_pose.translation().z(),
-                                   std::sqrt(std::pow(target_world_pose.position.x - link4_pose.translation().x(), 2) +
-                                             std::pow(target_world_pose.position.y - link4_pose.translation().y(), 2))); // 计算新的 Pitch 角
+            const double horizontal_distance = std::hypot(
+                target_world_pose.position.x - link4_pose.translation().x(),
+                target_world_pose.position.y - link4_pose.translation().y());
+            const double target_link4_pitch = std::atan2(
+                target_world_pose.position.z - link4_pose.translation().z(),
+                horizontal_distance);
 
-            send_move_goal({goal_q});
+            // camera_link is mounted on Link_4, so the third pitch joint controls the
+            // camera elevation. Joint 5 is roll-only and cannot steer the camera pitch.
+            const double desired_pitch_3 =
+                target_link4_pitch - goal_q[1] - goal_q[2];
+            constexpr double kPitch3LowerLimit = -2.0;
+            constexpr double kPitch3UpperLimit = 1.57;
+            goal_q[3] = std::clamp(desired_pitch_3, kPitch3LowerLimit, kPitch3UpperLimit);
+            if (std::abs(goal_q[3] - desired_pitch_3) > 1e-6)
+            {
+                RCLCPP_INFO(
+                    this->get_logger(),
+                    "look_at pitch_3 target %.3f rad exceeded joint limits; clamped to %.3f rad.",
+                    desired_pitch_3,
+                    goal_q[3]);
+            }
+
+            return send_move_goal({goal_q});
         }
-        else
-        {
-            RCLCPP_ERROR(this->get_logger(), "Preset 'look_out' not found!");
-        }
+
+        RCLCPP_ERROR(this->get_logger(), "Preset 'look_at' not found!");
+        return false;
     }
 
-    void load_action()
+    bool load_action()
     {
         if (presets_.count("load"))
         {
             auto goal_q = presets_["load"];
-            send_move_goal({goal_q});
+            return send_move_goal({goal_q});
         }
-        else
-        {
-            RCLCPP_ERROR(this->get_logger(), "Preset 'load' not found!");
-        }
+
+        RCLCPP_ERROR(this->get_logger(), "Preset 'load' not found!");
+        return false;
     }
 
-    void grasp_action(geometry_msgs::msg::Pose target_world_pose)
+    bool grasp_action(const geometry_msgs::msg::Pose &target_world_pose)
     {
         Eigen::VectorXd q_ik(5);
         double target_pitch = -1.57; // 或者根据需求设定俯仰角
@@ -195,42 +221,49 @@ public:
         // 2. 调用 solveIK (匹配第 34 行定义的 3 参数版本)
         if (kin_engine_->solveIK(target_p, target_pitch, q_ik))
         {
-            send_move_goal({q_ik});
             ik_success_ = true;
+            return send_move_goal({q_ik});
         }
-        else
-        {
-            ik_success_ = false;
-            RCLCPP_ERROR(this->get_logger(), "IK failed for grasp action!");
-        }
+
+        ik_success_ = false;
+        RCLCPP_ERROR(this->get_logger(), "IK failed for grasp action!");
+        return false;
     }
 
 private:
     bool wait_for_system_ready()
     {
         RCLCPP_INFO(this->get_logger(), "Waiting for robot_driver_socket readiness...");
-        while (rclcpp::ok() && !driver_ready_.load())
+        while (rclcpp::ok() && is_running_.load() && !driver_ready_.load())
         {
             rclcpp::sleep_for(100ms);
         }
 
         RCLCPP_INFO(this->get_logger(), "Waiting for first robot joint state...");
-        while (rclcpp::ok() && !has_robot_data_)
+        while (rclcpp::ok() && is_running_.load() && !has_robot_data_.load())
         {
             rclcpp::sleep_for(100ms);
         }
 
         RCLCPP_INFO(this->get_logger(), "Waiting for control services and action server...");
-        while (rclcpp::ok())
+        while (rclcpp::ok() && is_running_.load())
         {
             const bool mode_ready = mode_client_->wait_for_service(500ms);
             const bool payload_ready =
                 !require_payload_service_ || payload_client_->wait_for_service(500ms);
-            const bool suction_ready = suction_client_->wait_for_service(500ms);
+            const bool suction_ready =
+                !require_suction_service_ || suction_client_->wait_for_service(500ms);
             const bool action_ready = move_joint_client_->wait_for_action_server(500ms);
 
             if (mode_ready && payload_ready && suction_ready && action_ready)
             {
+                if (!require_suction_service_ &&
+                    !suction_client_->wait_for_service(100ms))
+                {
+                    RCLCPP_INFO(
+                        this->get_logger(),
+                        "Optional suction service [set_suction] is not available; suction commands will be skipped.");
+                }
                 return true;
             }
         }
@@ -241,7 +274,7 @@ private:
     void load_presets()
     {
         // 定义想要加载的动作名称列表
-        std::vector<std::string> preset_names = {"reset", "look_out", "load"};
+        std::vector<std::string> preset_names = {"reset", "look_at", "load"};
 
         for (const auto &name : preset_names)
         {
@@ -264,10 +297,68 @@ private:
         }
     }
     // 发送关节空间目标
-    void send_move_goal(const std::vector<Eigen::VectorXd> &q_waypoints)
+    bool wait_for_action_completion(std::chrono::seconds timeout = std::chrono::seconds(30))
+    {
+        const auto deadline = std::chrono::steady_clock::now() + timeout;
+        while (rclcpp::ok() && is_running_.load() && !action_finished_)
+        {
+            if (std::chrono::steady_clock::now() >= deadline)
+            {
+                is_action_running_ = false;
+                {
+                    std::lock_guard<std::mutex> lock(action_result_mutex_);
+                    last_action_succeeded_ = false;
+                    last_action_message_ = "Timed out waiting for move_joint action to finish.";
+                }
+                RCLCPP_ERROR(
+                    this->get_logger(),
+                    "Timed out waiting for move_joint action to finish after %.1f s.",
+                    timeout.count() * 1.0);
+                return false;
+            }
+            rclcpp::sleep_for(50ms);
+        }
+
+        if ((!rclcpp::ok() || !is_running_.load()) && !action_finished_)
+        {
+            std::lock_guard<std::mutex> lock(action_result_mutex_);
+            last_action_succeeded_ = false;
+            last_action_message_ = "Task loop stopped before move_joint action finished.";
+            return false;
+        }
+
+        bool action_succeeded = false;
+        std::string action_message;
+        {
+            std::lock_guard<std::mutex> lock(action_result_mutex_);
+            action_succeeded = last_action_succeeded_;
+            action_message = last_action_message_;
+        }
+        action_finished_ = false;
+        if (!action_succeeded)
+        {
+            RCLCPP_ERROR(
+                this->get_logger(),
+                "move_joint action reported failure: %s",
+                action_message.empty() ? "unknown error" : action_message.c_str());
+        }
+        return rclcpp::ok() && action_succeeded;
+    }
+
+    bool send_move_goal(const std::vector<Eigen::VectorXd> &q_waypoints)
     {
         if (!move_joint_client_->wait_for_action_server(10s))
-            return;
+        {
+            is_action_running_ = false;
+            action_finished_ = true;
+            {
+                std::lock_guard<std::mutex> lock(action_result_mutex_);
+                last_action_succeeded_ = false;
+                last_action_message_ = "move_joint action server not available.";
+            }
+            RCLCPP_ERROR(this->get_logger(), "move_joint action server not available.");
+            return false;
+        }
 
         auto goal_msg = MoveJoint::Goal();
         goal_msg.max_velocity = max_v_; // 从 params.yaml 读取
@@ -282,20 +373,73 @@ private:
         }
 
         auto send_goal_options = rclcpp_action::Client<MoveJoint>::SendGoalOptions();
-        send_goal_options.result_callback = [this](const auto &result)
+        action_finished_ = false;
+        is_action_running_ = true;
         {
+            std::lock_guard<std::mutex> lock(action_result_mutex_);
+            last_action_succeeded_ = false;
+            last_action_message_.clear();
+        }
+
+        send_goal_options.goal_response_callback =
+            [this](std::shared_ptr<GoalHandleMoveJoint> goal_handle)
+        {
+            if (!goal_handle)
+            {
+                is_action_running_ = false;
+                action_finished_ = true;
+                {
+                    std::lock_guard<std::mutex> lock(action_result_mutex_);
+                    last_action_succeeded_ = false;
+                    last_action_message_ = "move_joint goal rejected by action server.";
+                }
+                RCLCPP_ERROR(this->get_logger(), "move_joint goal was rejected by the action server.");
+            }
+        };
+        send_goal_options.result_callback = [this](const GoalHandleMoveJoint::WrappedResult &result)
+        {
+            is_action_running_ = false;
             action_finished_ = true; // 触发状态机跳转
+            bool action_succeeded = result.code == rclcpp_action::ResultCode::SUCCEEDED;
+            std::string action_message;
+            if (result.result)
+            {
+                action_succeeded = action_succeeded && result.result->success;
+                action_message = result.result->message;
+            }
+            else if (!action_succeeded)
+            {
+                action_message = "Action finished without a result payload.";
+            }
+            if (action_message.empty())
+            {
+                action_message = action_succeeded ? "success" : "move_joint action failed.";
+            }
+            {
+                std::lock_guard<std::mutex> lock(action_result_mutex_);
+                last_action_succeeded_ = action_succeeded;
+                last_action_message_ = action_message;
+            }
+            if (!action_succeeded)
+            {
+                RCLCPP_ERROR(
+                    this->get_logger(),
+                    "move_joint action failed. code=%d message=%s",
+                    static_cast<int>(result.code),
+                    action_message.c_str());
+            }
         };
 
         move_joint_client_->async_send_goal(goal_msg, send_goal_options);
+        return true;
     }
 
     // 新增：支持单个点的重载版本
-    void send_move_goal(const Eigen::VectorXd &q_single)
+    bool send_move_goal(const Eigen::VectorXd &q_single)
     {
         // 将单个点包装成 vector 然后调用原函数
         std::vector<Eigen::VectorXd> waypoints{q_single};
-        send_move_goal(waypoints);
+        return send_move_goal(waypoints);
     }
     /**
      * @brief 坐标获取服务请求：使用 TF2 处理感知延迟并转换至世界坐标系
@@ -305,7 +449,7 @@ private:
         // 1. 检查服务是否存在
         if (!pick_client_->wait_for_service(std::chrono::seconds(1)))
         {
-            RCLCPP_WARN(this->get_logger(), "Service not available");
+            RCLCPP_ERROR(this->get_logger(), "Service not available");
             return false;
         }
 
@@ -368,7 +512,7 @@ private:
         // 1. 等待服务可用
         if (!payload_client_->wait_for_service(std::chrono::seconds(1)))
         {
-            RCLCPP_WARN(this->get_logger(), "Service [GetPayloadEstimate] not available.");
+            RCLCPP_ERROR(this->get_logger(), "Service [GetPayloadEstimate] not available.");
             return 0;
         }
 
@@ -411,44 +555,134 @@ private:
     {
         if (!mode_client_->wait_for_service(std::chrono::seconds(1)))
         {
-            RCLCPP_WARN(this->get_logger(), "Mode switch service not available");
+            RCLCPP_ERROR(this->get_logger(), "Mode switch service not available");
             return 0;
         }
 
         auto request = std::make_shared<robot_msgs::srv::SetControllerMode::Request>();
         request->mode = mode_name;
 
-        mode_client_->async_send_request(request,
-                                         [this, mode_name](rclcpp::Client<robot_msgs::srv::SetControllerMode>::SharedFuture future)
-                                         {
-                                             auto response = future.get();
-                                             if (response->success)
-                                             {
-                                                 RCLCPP_INFO(this->get_logger(), "\033[1;36m[Mode Success]\033[0m Controller switched to: %s", mode_name.c_str());
-                                             }
-                                         });
+        auto result_future = mode_client_->async_send_request(request);
+        if (result_future.wait_for(std::chrono::seconds(2)) != std::future_status::ready)
+        {
+            RCLCPP_ERROR(
+                this->get_logger(),
+                "Mode switch to [%s] timed out.",
+                mode_name.c_str());
+            return 0;
+        }
+
+        const auto response = result_future.get();
+        if (!response || !response->success)
+        {
+            RCLCPP_ERROR(
+                this->get_logger(),
+                "Mode switch to [%s] failed.",
+                mode_name.c_str());
+            return 0;
+        }
+
+        RCLCPP_INFO(
+            this->get_logger(),
+            "\033[1;36m[Mode Success]\033[0m Controller switched to: %s",
+            mode_name.c_str());
         return 1;
     }
 
     int set_suction(bool activate)
     {
         if (!suction_client_->wait_for_service(std::chrono::seconds(1)))
+        {
+            if (require_suction_service_)
+            {
+                RCLCPP_ERROR(this->get_logger(), "Required suction service is not available.");
+            }
+            else
+            {
+                RCLCPP_INFO(
+                    this->get_logger(),
+                    "Optional suction service is not available; skipping suction command.");
+            }
             return 0;
+        }
 
         auto request = std::make_shared<robot_msgs::srv::SetSuction::Request>();
         request->activate = activate;
 
-        // 修正：显式指定 SharedFuture 类型避免编译推导错误
-        suction_client_->async_send_request(request,
-                                            [this, activate](rclcpp::Client<robot_msgs::srv::SetSuction>::SharedFuture future)
-                                            {
-                                                auto response = future.get();
-                                                if (response->success)
-                                                {
-                                                    RCLCPP_INFO(this->get_logger(), "Suction %s", activate ? "ON" : "OFF");
-                                                }
-                                            });
+        auto result_future = suction_client_->async_send_request(request);
+        if (result_future.wait_for(std::chrono::seconds(2)) != std::future_status::ready)
+        {
+            RCLCPP_ERROR(
+                this->get_logger(),
+                "Suction command [%s] timed out.",
+                activate ? "ON" : "OFF");
+            return 0;
+        }
+
+        const auto response = result_future.get();
+        if (!response || !response->success)
+        {
+            RCLCPP_ERROR(
+                this->get_logger(),
+                "Suction command [%s] failed.",
+                activate ? "ON" : "OFF");
+            return 0;
+        }
+
+        RCLCPP_INFO(this->get_logger(), "Suction %s", activate ? "ON" : "OFF");
         return 1;
+    }
+
+    bool wait_for_user_command(int *input_cmd)
+    {
+        if (input_cmd == nullptr)
+        {
+            return false;
+        }
+
+        while (rclcpp::ok() && is_running_.load())
+        {
+            pollfd stdin_poll{};
+            stdin_poll.fd = STDIN_FILENO;
+            stdin_poll.events = POLLIN;
+
+            const int poll_rc = ::poll(&stdin_poll, 1, 200);
+            if (poll_rc == 0)
+            {
+                continue;
+            }
+            if (poll_rc < 0)
+            {
+                if (errno == EINTR)
+                {
+                    continue;
+                }
+                RCLCPP_ERROR(this->get_logger(), "poll(stdin) failed while waiting for user input.");
+                return false;
+            }
+            if ((stdin_poll.revents & (POLLERR | POLLHUP | POLLNVAL)) != 0)
+            {
+                RCLCPP_INFO(this->get_logger(), "stdin became unavailable; stopping task input loop.");
+                return false;
+            }
+
+            if (!(std::cin >> *input_cmd))
+            {
+                if (std::cin.eof())
+                {
+                    RCLCPP_INFO(this->get_logger(), "stdin closed; stopping task input loop.");
+                    return false;
+                }
+                std::cin.clear();
+                std::cin.ignore(std::numeric_limits<std::streamsize>::max(), '\n');
+                std::cout << "请输入有效数字: " << std::flush;
+                continue;
+            }
+
+            return true;
+        }
+
+        return false;
     }
 
     void run_task_sequence()
@@ -460,23 +694,24 @@ private:
 
         RCLCPP_INFO(this->get_logger(), "Task Node [Joint Control Mode] Ready.");
 
-        while (rclcpp::ok())
+        while (rclcpp::ok() && is_running_.load())
         {
             std::cout << "\n========== 任务控制面板 (关节空间/IK) ==========" << std::endl;
             std::cout << "1: 执行 Step 1 (重置到预设 IDLE)" << std::endl;
-            std::cout << "2: 执行 Step 2 (识别并动态移动到 LOOKOUT)" << std::endl;
+            std::cout << "2: 执行 Step 2 (识别并动态移动到 LOOKAT)" << std::endl;
             std::cout << "3: 执行 Step 3 (执行 IK 抓取 GRASP)" << std::endl;
             std::cout << "4: 执行 Step 4 (负载估计与模式切换)" << std::endl;
             std::cout << "5: 执行 Step 5 (移动到预设 LOAD 点)" << std::endl;
+            std::cout << "6: 执行 Step 6 (感知目标并执行 IK 抓取)" << std::endl;
+            std::cout << "7: 执行 Step 7 (获取当前识别目标位姿)" << std::endl;
+            std::cout << "8: 执行 Step 8 (感知目标并动态 LOOKAT)" << std::endl;
             std::cout << "0: 退出程序" << std::endl;
-            std::cout << "请输入指令数字: ";
+            std::cout << "请输入指令数字: " << std::flush;
 
             int input_cmd;
-            if (!(std::cin >> input_cmd))
+            if (!wait_for_user_command(&input_cmd))
             {
-                std::cin.clear();
-                std::cin.ignore(std::numeric_limits<std::streamsize>::max(), '\n');
-                continue;
+                return;
             }
 
             geometry_msgs::msg::Pose target_pose;
@@ -485,62 +720,96 @@ private:
             {
             case 1:
                 RCLCPP_INFO(this->get_logger(), ">>> Step 1: Resetting to IDLE...");
-                set_suction(false);
-                request_mode_switch("moving");
-                request_reset(); // 使用预设的 "reset" 位姿
-
-                while (rclcpp::ok() && !action_finished_)
+                if (!set_suction(false))
                 {
-                    rclcpp::sleep_for(50ms);
+                    RCLCPP_ERROR(this->get_logger(), "Step 1 could not confirm suction OFF.");
                 }
-                action_finished_ = false;
-                request_mode_switch("idle");
+                if (!request_mode_switch("moving"))
+                {
+                    RCLCPP_ERROR(this->get_logger(), "Step 1 aborted because controller failed to enter moving mode.");
+                    break;
+                }
+                if (request_reset()) // 使用预设的 "reset" 位姿
+                {
+                    if (!wait_for_action_completion())
+                    {
+                        RCLCPP_ERROR(this->get_logger(), "Step 1 reset motion did not finish successfully.");
+                    }
+                }
+                else
+                {
+                    RCLCPP_ERROR(this->get_logger(), "Step 1 skipped because reset goal could not be sent.");
+                }
+                if (!request_mode_switch("idle"))
+                {
+                    RCLCPP_ERROR(this->get_logger(), "Step 1 could not switch controller back to idle mode.");
+                }
                 RCLCPP_INFO(this->get_logger(), "Step 1 完成。");
                 break;
 
             case 2:
                 RCLCPP_INFO(this->get_logger(), ">>> Step 2: Dynamic Looking...");
-                request_mode_switch("moving");
+                if (!request_mode_switch("moving"))
+                {
+                    RCLCPP_ERROR(this->get_logger(), "Step 2 aborted because controller failed to enter moving mode.");
+                    break;
+                }
 
-                q_ << 0, 160, -130, 40, 0;
+                q_ << 0, 140, -150, -25, 0;
                 for (int i = 0; i < q_.size(); ++i)
                 {
                     // 角度转弧度公式：弧度 = 角度 * (π / 180)
                     q_(i) = q_(i) * (M_PI / 180.0);
                 }
-                send_move_goal(q_);
-
-                while (rclcpp::ok() && !action_finished_)
+                if (send_move_goal(q_))
                 {
-                    rclcpp::sleep_for(50ms);
+                    if (!wait_for_action_completion())
+                    {
+                        RCLCPP_ERROR(this->get_logger(), "Step 2 motion did not finish successfully.");
+                    }
                 }
-                action_finished_ = false;
+                else
+                {
+                    RCLCPP_ERROR(this->get_logger(), "Step 2 skipped because move goal could not be sent.");
+                }
                 RCLCPP_INFO(this->get_logger(), "Step 2 完成。");
                 break;
 
             case 3:
                 RCLCPP_INFO(this->get_logger(), ">>> Step 3: IK Grasping...");
-                request_mode_switch("moving");
+                if (!request_mode_switch("moving"))
+                {
+                    RCLCPP_ERROR(this->get_logger(), "Step 3 aborted because controller failed to enter moving mode.");
+                    break;
+                }
 
-                q_ << 178, 90, -90, -90, 0;
+                q_ << 0.0, 100.0, -80.0, -80.0, 0.0;
                 for (int i = 0; i < q_.size(); ++i)
                 {
                     // 角度转弧度公式：弧度 = 角度 * (π / 180)
                     q_(i) = q_(i) * (M_PI / 180.0);
                 }
-                send_move_goal(q_);
-
-                while (rclcpp::ok() && !action_finished_)
+                if (send_move_goal(q_))
                 {
-                    rclcpp::sleep_for(50ms);
+                    if (!wait_for_action_completion())
+                    {
+                        RCLCPP_ERROR(this->get_logger(), "Step 3 motion did not finish successfully.");
+                    }
                 }
-                action_finished_ = false;
+                else
+                {
+                    RCLCPP_ERROR(this->get_logger(), "Step 3 skipped because move goal could not be sent.");
+                }
                 RCLCPP_INFO(this->get_logger(), "Step 3 完成。");
                 break;
 
             case 4:
                 RCLCPP_INFO(this->get_logger(), ">>> Step 4: IK Grasping...");
-                request_mode_switch("moving");
+                if (!request_mode_switch("moving"))
+                {
+                    RCLCPP_ERROR(this->get_logger(), "Step 4 aborted because controller failed to enter moving mode.");
+                    break;
+                }
 
                 q_ << 90, 0, 0, 0, -90;
                 for (int i = 0; i < q_.size(); ++i)
@@ -548,19 +817,27 @@ private:
                     // 角度转弧度公式：弧度 = 角度 * (π / 180)
                     q_(i) = q_(i) * (M_PI / 180.0);
                 }
-                send_move_goal(q_);
-
-                while (rclcpp::ok() && !action_finished_)
+                if (send_move_goal(q_))
                 {
-                    rclcpp::sleep_for(50ms);
+                    if (!wait_for_action_completion())
+                    {
+                        RCLCPP_ERROR(this->get_logger(), "Step 4 motion did not finish successfully.");
+                    }
                 }
-                action_finished_ = false;
+                else
+                {
+                    RCLCPP_ERROR(this->get_logger(), "Step 4 skipped because move goal could not be sent.");
+                }
                 RCLCPP_INFO(this->get_logger(), "Step 4 完成。");
                 break;
 
             case 5:
                 RCLCPP_INFO(this->get_logger(), ">>> Step 5: IK Grasping...");
-                request_mode_switch("moving");
+                if (!request_mode_switch("moving"))
+                {
+                    RCLCPP_ERROR(this->get_logger(), "Step 5 aborted because controller failed to enter moving mode.");
+                    break;
+                }
 
                 q_ << 0, 0, 0, 0, -90;
                 for (int i = 0; i < q_.size(); ++i)
@@ -568,43 +845,161 @@ private:
                     // 角度转弧度公式：弧度 = 角度 * (π / 180)
                     q_(i) = q_(i) * (M_PI / 180.0);
                 }
-                send_move_goal(q_);
-
-                while (rclcpp::ok() && !action_finished_)
+                if (send_move_goal(q_))
                 {
-                    rclcpp::sleep_for(50ms);
+                    if (!wait_for_action_completion())
+                    {
+                        RCLCPP_ERROR(this->get_logger(), "Step 5 motion did not finish successfully.");
+                    }
                 }
-                action_finished_ = false;
-                RCLCPP_INFO(this->get_logger(), "Step 4 完成。");
+                else
+                {
+                    RCLCPP_ERROR(this->get_logger(), "Step 5 skipped because move goal could not be sent.");
+                }
+                RCLCPP_INFO(this->get_logger(), "Step 5 完成。");
                 break;
 
             case 6:
             { // <--- 在这里添加左大括号
                 RCLCPP_INFO(this->get_logger(), ">>> Step 6: IK Grasping...");
-                request_mode_switch("moving");
+                if (!request_mode_switch("moving"))
+                {
+                    RCLCPP_ERROR(this->get_logger(), "Step 6 aborted because controller failed to enter moving mode.");
+                    break;
+                }
                 
                 geometry_msgs::msg::Pose target_pose;
+                bool action_started = false;
                 if (call_pick_service_sync("box", &target_pose)) 
                 {
-                    grasp_action(target_pose);
+                    action_started = grasp_action(target_pose);
+                }
+                else
+                {
+                    RCLCPP_ERROR(this->get_logger(), "Step 6 aborted because no valid target pose was received.");
                 }
 
-                while (rclcpp::ok() && !action_finished_)
+                if (action_started)
                 {
-                    rclcpp::sleep_for(50ms);
+                    if (!wait_for_action_completion())
+                    {
+                        RCLCPP_ERROR(this->get_logger(), "Step 6 motion did not finish successfully.");
+                    }
                 }
-                action_finished_ = false;
                 RCLCPP_INFO(this->get_logger(), "Step 6 完成。");
                 break;
             } // <--- 在这里添加右大括号
-            
+
+            case 7:
+            {
+                RCLCPP_INFO(this->get_logger(), ">>> Step 7: Query Current Pick Pose...");
+                if (!request_mode_switch("moving"))
+                {
+                    RCLCPP_ERROR(this->get_logger(), "Step 7 aborted because controller failed to enter moving mode.");
+                    break;
+                }
+
+                geometry_msgs::msg::Pose target_pose;
+                if (call_pick_service_sync("box", &target_pose)) 
+                {
+                    RCLCPP_INFO(
+                        this->get_logger(),
+                        "Target Pose for Look At: x=%.3f y=%.3f  z=%.3f",
+                        target_pose.position.x,
+                        target_pose.position.y,
+                        target_pose.position.z);
+                }
+                else
+                {
+                    RCLCPP_ERROR(this->get_logger(), "Step 7 could not retrieve a valid target pose.");
+                }
+               
+                RCLCPP_INFO(this->get_logger(), "Step 7 完成。");
+                break;
+            }
+
+            case 8:
+            {
+                RCLCPP_INFO(this->get_logger(), ">>> Step 8: Dynamic Look At...");
+                if (!request_mode_switch("moving"))
+                {
+                    RCLCPP_ERROR(this->get_logger(), "Step 8 aborted because controller failed to enter moving mode.");
+                    break;
+                }
+
+                geometry_msgs::msg::Pose target_pose;
+                bool action_started = false;
+                if (call_pick_service_sync("box", &target_pose))
+                {
+                    RCLCPP_INFO(
+                        this->get_logger(),
+                        "Target Pose for Look At: x=%.3f y=%.3f  z=%.3f",
+                        target_pose.position.x,
+                        target_pose.position.y,
+                        target_pose.position.z);
+                    action_started = look_at_action(target_pose);
+                }
+                else
+                {
+                    RCLCPP_ERROR(this->get_logger(), "Step 8 aborted because no valid target pose was received.");
+                }
+
+                if (action_started)
+                {
+                    if (!wait_for_action_completion())
+                    {
+                        RCLCPP_ERROR(this->get_logger(), "Step 8 motion did not finish successfully.");
+                    }
+                }
+                RCLCPP_INFO(this->get_logger(), "Step 8 完成。");
+                break;
+            }
+
+               case 9:
+            {
+                RCLCPP_INFO(this->get_logger(), ">>> Step 8: Dynamic Look At...");
+                if (!request_mode_switch("moving"))
+                {
+                    RCLCPP_ERROR(this->get_logger(), "Step 8 aborted because controller failed to enter moving mode.");
+                    break;
+                }
+
+                geometry_msgs::msg::Pose target_pose;
+                bool action_started = false;
+                if (call_pick_service_sync("box", &target_pose))
+                {
+                    RCLCPP_INFO(
+                        this->get_logger(),
+                        "Target Pose for Look At: x=%.3f y=%.3f  z=%.3f",
+                        target_pose.position.x,
+                        target_pose.position.y,
+                        target_pose.position.z);
+                    action_started = grasp_action(target_pose);
+                }
+                else
+                {
+                    RCLCPP_ERROR(this->get_logger(), "Step 8 aborted because no valid target pose was received.");
+                }
+
+                if (action_started)
+                {
+                    if (!wait_for_action_completion())
+                    {
+                        RCLCPP_ERROR(this->get_logger(), "Step 8 motion did not finish successfully.");
+                    }
+                }
+                RCLCPP_INFO(this->get_logger(), "Step 8 完成。");
+                break;
+            }
+
             case 0:
                 RCLCPP_INFO(this->get_logger(), "收到退出指令。");
+                is_running_.store(false);
                 rclcpp::shutdown();
                 return;
 
             default:
-                RCLCPP_WARN(this->get_logger(), "无效指令: %d", input_cmd);
+                RCLCPP_INFO(this->get_logger(), "无效指令: %d", input_cmd);
                 break;
             }
         }
@@ -612,7 +1007,7 @@ private:
 
     // 成员变量
     arm2_task::TaskState state_;
-    bool has_robot_data_ = false;
+    std::atomic<bool> has_robot_data_{false};
     Eigen::VectorXd q_current_;
     geometry_msgs::msg::Pose target_world_pose_;
     std::mutex mtx_;
@@ -624,11 +1019,15 @@ private:
     double max_a_ = 1.0;
     double dist_threshold_ = 0.05;
     bool require_payload_service_{false};
+    bool require_suction_service_{false};
     std::atomic<bool> ik_success_ = true;
     std::atomic<bool> is_mass_updated_ = false;
     std::atomic<bool> is_pose_updated_ = false;
     std::atomic<bool> is_action_running_ = false; // 新增标志位，跟踪 Action 执行状态
     std::atomic<bool> action_finished_ = false;   // 新增：用于通知状态机切换
+    bool last_action_succeeded_{false};
+    std::string last_action_message_;
+    std::mutex action_result_mutex_;
 
     std::map<std::string, Eigen::VectorXd> presets_; // 预设位姿
     std::unique_ptr<arm2_task::KinematicsEngine> kin_engine_;

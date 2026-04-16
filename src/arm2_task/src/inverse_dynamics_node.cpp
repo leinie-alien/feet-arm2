@@ -837,12 +837,32 @@ void InverseDynamicsNode::publish_static_camera_tf()
 {
     geometry_msgs::msg::TransformStamped t;
     t.header.stamp = this->get_clock()->now();
-    t.header.frame_id = "Link_4";
-    t.child_frame_id = "camera_link";
+    const auto parent_frame =
+        this->declare_parameter("camera_extrinsics.parent_frame", std::string("Link_4"));
+    const auto child_frame =
+        this->declare_parameter("camera_extrinsics.child_frame", std::string("camera_link"));
     auto pos =
-        this->declare_parameter("camera_extrinsics.pos", std::vector<double>{0.05, 0.0, 0.02});
+        this->declare_parameter("camera_extrinsics.pos", std::vector<double>{0.0, -0.07, 0.0});
     auto quat =
-        this->declare_parameter("camera_extrinsics.quat", std::vector<double>{0.0, 0.0, 0.0, 1.0});
+        this->declare_parameter(
+            "camera_extrinsics.quat",
+            std::vector<double>{0.0, 0.70710678, 0.0, 0.70710678});
+    if (pos.size() != 3U) {
+        RCLCPP_ERROR(
+            this->get_logger(),
+            "camera_extrinsics.pos size=%zu, expected 3. Falling back to [0.0, -0.07, 0.0].",
+            pos.size());
+        pos = {0.0, -0.07, 0.0};
+    }
+    if (quat.size() != 4U) {
+        RCLCPP_ERROR(
+            this->get_logger(),
+            "camera_extrinsics.quat size=%zu, expected 4. Falling back to [0.0, 0.70710678, 0.0, 0.70710678].",
+            quat.size());
+        quat = {0.0, 0.70710678, 0.0, 0.70710678};
+    }
+    t.header.frame_id = parent_frame;
+    t.child_frame_id = child_frame;
     t.transform.translation.x = pos[0];
     t.transform.translation.y = pos[1];
     t.transform.translation.z = pos[2];

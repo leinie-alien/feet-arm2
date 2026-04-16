@@ -5,8 +5,8 @@
     camera_extrinsics:
       child_frame: camera_link
       parent_frame: Link_4
-      pos: [0.0, 0.0, 0.0]
-      quat: [0.0, 0.0, 0.0, 1.0]
+      pos: [0.0, -0.07, 0.0]
+      quat: [0.0, 0.70710678, 0.0, 0.70710678]
     # 动力学与摩擦力补偿参数
     # tau_f = fc * tanh(alpha * dq) + fv * dq
     dynamics:
@@ -54,8 +54,8 @@
       min_lever_arm: 0.05
     # 预设动作点 (角度制)
     presets:
-      load: [0.0, 90.0, -90.0, -90.0, 0.0]
-      look_out: [0.0, 120.0, -150.0, 0.0, 0.0]
+      load: [0.0, 60.0, -60.0, -80.0, 0.0]
+      look_at: [0.0, 100.0, -80.0, -90.0, 0.0]
       reset: [0.0, 175.0, -170.0, 10.0, 0.0]
     # 机器人几何参数 (用于解析逆解)
     robot_geometry:
@@ -78,6 +78,7 @@
       max_velocity: 0.8
     task:
       require_payload_service: false
+      require_suction_service: false
     teach_pendant:
       topic: /joint_states
       target_topic: /joint_target_state
