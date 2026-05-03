@@ -1,12 +1,13 @@
 ---
 /**:
   ros__parameters:
+
     #相机安装位置
     camera_extrinsics:
       child_frame: camera_link
       parent_frame: Link_4
-      pos: [0.0, -0.07, 0.0]
-      quat: [0.0, 0.70710678, 0.0, 0.70710678]
+      pos: [-0.071470, -0.103035, 0.027404]
+      quat: [0.02799937, 0.69705640, -0.00605161, 0.71644385]
     # 动力学与摩擦力补偿参数
     # tau_f = fc * tanh(alpha * dq) + fv * dq
     dynamics:
@@ -21,7 +22,7 @@
     gains:
       #2. 纯重力补偿模式 (GRAVITY_COMP): 极低 PD,主要靠动力学模型抵消重力,实现“透明”手感或零力示教
       gravity_comp:
-        kd: [1.0, 2.5, 1.5, 0.2, 0.02]
+        kd: [1.0, 2.5, 0.8, 0.2, 0.02]
         kp: [2.0, 8.5, 3.0, 1.2, 0.1]
       # 1. 待机模式 (IDLE): 低增益，防止电机高频振动发热，允许手动推过
       idle:
@@ -29,8 +30,8 @@
         kp: [1.0, 2.0, 1.0, 0.5, 0.0]
       #4. 负载模式 (LOADED): 高增益，应对抓取 500g 负载后的惯量增加，提高刚性减少静差
       loaded:
-        kd: [1.0, 8.0, 5.0, 3.2, 0.1]
-        kp: [5.0, 20.0, 15.0, 8.5, 0.6]
+        kd: [1.0, 8.0, 3.0, 3.2, 0.1]
+        kp: [5.0, 20.0, 10.0, 8.5, 0.6]
       #3. 运动模式 (MOVING): 标准增益，兼顾响应速度和稳定性，用于瞭望、俯瞰等空载移动
       moving:
         kd: [1.0, 4.0, 1.5, 0.1, 0.1]
@@ -54,9 +55,9 @@
       min_lever_arm: 0.05
     # 预设动作点 (角度制)
     presets:
-      load: [0.0, 60.0, -60.0, -80.0, 0.0]
-      look_at: [0.0, 100.0, -80.0, -90.0, 0.0]
-      reset: [0.0, 175.0, -170.0, 10.0, 0.0]
+      load:     [0.0,  90.0, -80.0, -90.0, 0.0]   # 俯瞰姿态，相机朝正下方   之前第三个是-90(因为虚位)
+      look_out: [0.0, 110.0, -150.0, 0.0,  0.0]   # 瞭望姿态，相机朝斜下方
+      reset:    [0.0, 175.0, -170.0, 10.0, 0.0]   # 收回/待机
     # 机器人几何参数 (用于解析逆解)
     robot_geometry:
       l1: 0.0845
@@ -74,11 +75,32 @@
       min_segment_duration: 0.3
       log_targets: false
       dist_threshold: 0.05
-      max_acceleration: 1.2
-      max_velocity: 0.8
+      max_acceleration: 1.0
+      max_velocity: 0.5
     task:
       require_payload_service: false
       require_suction_service: false
+
+    task_step6:
+      grasp_pitch:       -1.57    # 抓取末端俯仰角 (rad)
+      object_height:      0.005    # 物体高度，决定末端 Z 落点 (m)
+      pre_grasp_offset:   0.10    # 预抓取悬停高度偏移 (m)
+      tool_offset_x:      0.0     # 工具坐标系偏移
+      tool_offset_y:      0.0
+      tool_offset_z:      +0.07   # 工具坐标系偏移（补偿 base_link Z=0.38m 偏置）  之前是-0.17
+      pick_object_name:  "box"    # 传给 get_pick_pos 服务的物体名
+      use_mock_target:    false   # true 时 case6 用固定坐标（调试用）
+      mock_x:             0.35
+      mock_y:             0.0
+      mock_z:             0.12
+
+    task_place:
+      pre_place_offset:   0.12    # 预放置悬停高度偏移 (m)
+      retreat_offset:     0.15    # 放置后垂直后退距离 (m)
+
+    visual_align:
+      align_threshold:    0.005   # Phase-2 对齐收敛阈值：末端与目标 XY 误差 (m)
+      max_iters:          5       # Phase-2 最大迭代次数
     teach_pendant:
       topic: /joint_states
       target_topic: /joint_target_state

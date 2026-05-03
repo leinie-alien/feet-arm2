@@ -50,9 +50,11 @@ public:
      * @return bool 是否有解
      */
     bool solveIK(const Eigen::Vector3d& target_p_world, double pitch, Eigen::VectorXd& q_out);
-    bool solveIK(const Eigen::Vector3d& target_p_world, 
-             Eigen::VectorXd& q_out, 
-             double r_offset, 
+    bool solveIK(const Eigen::Vector3d& target_p_world, double pitch, double roll,
+                 Eigen::VectorXd& q_out);
+    bool solveIK(const Eigen::Vector3d& target_p_world,
+             Eigen::VectorXd& q_out,
+             double r_offset,
              double z_offset);
     /**
      * @brief 坐标系转换：将 Link_4 坐标系下的相对偏移转换为基座坐标系下的绝对位置

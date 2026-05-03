@@ -48,9 +48,18 @@ bool KinematicsEngine::solveIK(const Eigen::Vector3d& target_p_world, double pit
     return true;
 }
 
-bool KinematicsEngine::solveIK(const Eigen::Vector3d& target_p_world, 
-                             Eigen::VectorXd& q_out, 
-                             double r_offset, 
+bool KinematicsEngine::solveIK(const Eigen::Vector3d& target_p_world, double pitch, double roll,
+                             Eigen::VectorXd& q_out) {
+    if (!solveIK(target_p_world, pitch, q_out)) {
+        return false;
+    }
+    q_out[4] = roll;
+    return true;
+}
+
+bool KinematicsEngine::solveIK(const Eigen::Vector3d& target_p_world,
+                             Eigen::VectorXd& q_out,
+                             double r_offset,
                              double z_offset) {
 
      q_out = Eigen::VectorXd::Zero(5);

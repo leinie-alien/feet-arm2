@@ -1,22 +1,68 @@
-# ROS / colcon build outputs
-/build/
-/install/
-/log/
-**/build/
-**/build_sanity/
+# =========================
+# ROS2 / colcon workspace
+# =========================
 
-# Local tooling
-/.codex
-/src/.codex
-**/.codex
+# build & install & log (colcon 默认生成)
+build/
+install/
+log/
 
-# Archives and generated bundles
-*.zip
+# ROS1/ROS2 通用缓存
+*.log
+*.bag
+*.db3
+
+# 编译缓存
+*.o
+*.so
+*.a
+*.pyc
+__pycache__/
+*.pyo
+
+# CMake
+CMakeFiles/
+CMakeCache.txt
+cmake_install.cmake
+Makefile
+
+# colcon metadata
+.colcon/
 
 # Python
-__pycache__/
-*.pyc
+*.egg-info/
+dist/
+build/
+.eggs/
 
-# Editors / OS
+# VSCode
+.vscode/
+
+# CLion / JetBrains
+.idea/
+
+# 系统文件
 .DS_Store
 Thumbs.db
+
+# 临时文件
+*~
+*.swp
+
+# ROS test result
+test_results/
+
+# coverage
+.coverage
+htmlcov/
+
+# =========================
+# 可选：忽略大型模型/数据
+# =========================
+*.pt
+*.pth
+*.onnx
+*.h5
+*.zip
+*.tar
+*.gz
