@@ -194,6 +194,8 @@ public:
       cached_commands_[i].kp = 0.0f;
       cached_commands_[i].kd = 0.0f;
 
+      dm_motor_clear_err(&hcan1, &motor[i]);
+      std::this_thread::sleep_for(std::chrono::milliseconds(50));
       dm_motor_enable(&hcan1, &motor[i]);
       std::this_thread::sleep_for(std::chrono::milliseconds(50));
     }
