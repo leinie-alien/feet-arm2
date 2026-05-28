@@ -1,4 +1,0 @@
-# Damiao USB2CANFD / USB2CANFD_DUAL / ECAT2CANFD adapters.
-SUBSYSTEM=="usb", ATTR{idVendor}=="34b7", ATTR{idProduct}=="6877", MODE="0666", TAG+="uaccess"
-SUBSYSTEM=="usb", ATTR{idVendor}=="34b7", ATTR{idProduct}=="6632", MODE="0666", TAG+="uaccess"
-SUBSYSTEM=="usb", ATTR{idVendor}=="34b7", ATTR{idProduct}=="4543", MODE="0666", TAG+="uaccess"
