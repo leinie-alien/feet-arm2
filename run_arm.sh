@@ -60,6 +60,7 @@ Usage: $(basename "$0") [options]
 
 Options:
   --sim                仿真模式（不启动硬件驱动）
+  --sim-ws <dir>       指定仿真工作区目录（其中应包含 sim_arm.sh）
   --no-xterm           task_node 输出到当前终端，不弹 xterm（SSH 场景）
   --build              启动前先编译 dm_motor_sdk_ros 和 arm2_task
   --params <file>      指定 arm2_task params.yaml 路径
@@ -72,6 +73,7 @@ Options:
   TASK_IN_XTERM=false  等同于 --no-xterm
   AUTO_BUILD=true      等同于 --build
   PARAMS_FILE=<path>   等同于 --params
+  SIM_WS=<path>        等同于 --sim-ws
 USAGE
 }
 
@@ -194,6 +196,7 @@ ensure_dm_usb_permissions() {
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --sim)            SIM_MODE=true;           shift ;;
+    --sim-ws)         SIM_WS="$2";             shift 2 ;;
     --no-xterm)       TASK_IN_XTERM=false;     shift ;;
     --build)          AUTO_BUILD=true;         shift ;;
     --params)         PARAMS_FILE="$2";        shift 2 ;;
@@ -258,8 +261,16 @@ cd "$SCRIPT_DIR"
 
 if [[ "$SIM_MODE" == "true" ]]; then
   echo "[run_arm] 仿真模式：跳过硬件驱动。"
-  echo "[run_arm] 确保仿真器已在另一个终端运行："
-  echo "            bash $SIM_WS/sim_arm.sh"
+  if [[ -f "$SIM_WS/sim_arm.sh" ]]; then
+    echo "[run_arm] 确保仿真器已在另一个终端运行："
+    echo "            bash $SIM_WS/sim_arm.sh"
+  else
+    echo "[run_arm] WARN: 未找到仿真启动脚本: $SIM_WS/sim_arm.sh"
+    echo "[run_arm]       当前 SIM_WS=$SIM_WS"
+    echo "[run_arm]       如果你的仿真工作区在别处，可这样启动："
+    echo "[run_arm]         SIM_WS=/actual/sim/workspace bash run_arm.sh --sim"
+    echo "[run_arm]       或：bash run_arm.sh --sim --sim-ws /actual/sim/workspace"
+  fi
   echo ""
   # 等 mujoco_runner 发布 ready
   if ! wait_for_ready "$READY_TIMEOUT"; then
