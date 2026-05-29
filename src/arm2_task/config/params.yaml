@@ -6,8 +6,13 @@
     camera_extrinsics:
       child_frame: camera_link
       parent_frame: Link_4
-      pos: [-0.071470, -0.103035, 0.027404]
-      quat: [0.02799937, 0.69705640, -0.00605161, 0.71644385]
+      #pos: [-0.071470, -0.103035, 0.027404]
+      #quat: [0.02799937, 0.69705640, -0.00605161, 0.71644385]
+      pos: [-0.022196, -0.074195, -0.009377]
+      quat: [0.09283638, 0.71048084, 0.02435531, 0.69714073]
+  
+
+
     # 动力学与摩擦力补偿参数
     # tau_f = fc * tanh(alpha * dq) + fv * dq
     dynamics:
@@ -83,11 +88,14 @@
 
     task_step6:
       grasp_pitch:       -1.57    # 抓取末端俯仰角 (rad)
+      tool_pitch_offset:  0.25     # 实机 pitch 标定偏移 (rad)，正值=吸盘往前倾
+      tool_yaw_offset:    0.0      # 实机 yaw 标定偏移 (rad)，正值=逆时针(从上往下看)
       object_height:      0.005    # 物体高度，决定末端 Z 落点 (m)
       pre_grasp_offset:   0.10    # 预抓取悬停高度偏移 (m)
-      tool_offset_x:      0.0     # 工具坐标系偏移
-      tool_offset_y:      0.0
-      tool_offset_z:      +0.07   # 工具坐标系偏移（补偿 base_link Z=0.38m 偏置）  之前是-0.17
+      tool_offset_x:      0.02    # 工具坐标系偏移0.2 0.5
+      tool_offset_y:      0.05
+      tool_offset_z:      0.10   # 工具坐标系偏移（补偿 base_link Z=0.38m 偏置）  之前是-0.17
+      tool_tip_length:    0.0     # 吸盘接触面到 Link_5 origin 的距离 (m)，沿末端方向补偿
       pick_object_name:  "box"    # 传给 get_pick_pos 服务的物体名
       use_mock_target:    false   # true 时 case6 用固定坐标（调试用）
       mock_x:             0.35

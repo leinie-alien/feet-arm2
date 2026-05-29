@@ -1,0 +1,17 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(ls ~/data/robotics/arm/*.sh)",
+      "Bash(chmod +x *)",
+      "Read(//mnt/data/robotics/arm_mujuco_ws/**)",
+      "Bash(xargs ls *)",
+      "Bash(colcon build *)",
+      "Read(//home/leine/data/robotics/pin_arm_ws/src/robot_description/v1/**)",
+      "Read(//home/leine/data/robotics/pin_arm_ws/src/**)",
+      "Bash(zsh *)",
+      "Bash(git *)",
+      "Bash(python3 *)",
+      "Bash(xargs cat)"
+    ]
+  }
+}

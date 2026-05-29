@@ -37,6 +37,8 @@ constexpr double kAngleWrapLimit = M_PI;
 constexpr double kFullTurnRad = 2.0 * M_PI;
 constexpr double kDefaultQJumpThresholdRad = 0.03;
 constexpr double kDefaultTorqueLogPeriodSec = 1.0;
+constexpr int kEnableRetryLimit = 10;
+constexpr int kEnableRetryIntervalMs = 50;
 
 std::string join_double_vector(const std::vector<double> & values)
 {
@@ -111,9 +113,9 @@ public:
     auto motor_pmax = declare_parameter<std::vector<double>>(
       "motor_pmax", std::vector<double>{12.5, 12.5, 12.5, 12.5, 12.566});
     auto motor_vmax = declare_parameter<std::vector<double>>(
-      "motor_vmax", std::vector<double>{30.0, 10.0, 30.0, 30.0, 50.0});
+      "motor_vmax", std::vector<double>{30.0, 10.0, 10.0, 30.0, 50.0});
     auto motor_tmax = declare_parameter<std::vector<double>>(
-      "motor_tmax", std::vector<double>{10.0, 28.0, 10.0, 10.0, 5.0});
+      "motor_tmax", std::vector<double>{10.0, 28.0, 28.0, 10.0, 5.0});
     auto joint_zero_offsets = declare_parameter<std::vector<double>>(
       "joint_zero_offsets", std::vector<double>{-0.02, 0.14, 0.1, 0.361, 0.0});
     auto joint2_publish_window = declare_parameter<std::vector<double>>(
@@ -193,12 +195,8 @@ public:
       cached_commands_[i].tau = 0.0f;
       cached_commands_[i].kp = 0.0f;
       cached_commands_[i].kd = 0.0f;
-
-      dm_motor_clear_err(&hcan1, &motor[i]);
-      std::this_thread::sleep_for(std::chrono::milliseconds(50));
-      dm_motor_enable(&hcan1, &motor[i]);
-      std::this_thread::sleep_for(std::chrono::milliseconds(50));
     }
+    enable_motors_and_wait_for_feedback();
 
     subscription_ = create_subscription<robot_msgs::msg::RobotCommand>(
       "/arm2/_lowCmd/command", state_qos,
@@ -510,6 +508,109 @@ private:
     while (canx_pending(&hcan1) > 0U) {
       can1_rx_callback();
     }
+  }
+
+  void enable_motors_and_wait_for_feedback()
+  {
+    std::vector<bool> feedback_received(hardware_ids_.size(), false);
+
+    for (int attempt = 1; attempt <= kEnableRetryLimit; ++attempt) {
+      bool all_feedback_received = true;
+
+      for (size_t i = 0; i < hardware_ids_.size(); ++i) {
+        if (feedback_received[i]) {
+          continue;
+        }
+        dm_motor_enable(&hcan1, &motor[i]);
+      }
+
+      const auto deadline =
+        std::chrono::steady_clock::now() + std::chrono::milliseconds(kEnableRetryIntervalMs);
+      while (std::chrono::steady_clock::now() < deadline) {
+        pump_feedback();
+        for (size_t i = 0; i < hardware_ids_.size(); ++i) {
+          if (feedback_received[i]) {
+            continue;
+          }
+
+          motor_fbpara_t feedback{};
+          uint64_t feedback_ns = 0;
+          if (dm_motor_get_feedback_snapshot(hardware_ids_[i], &feedback, &feedback_ns) && feedback_ns != 0) {
+            feedback_received[i] = true;
+          }
+        }
+
+        all_feedback_received = std::all_of(
+          feedback_received.begin(), feedback_received.end(),
+          [](bool received) { return received; });
+        if (all_feedback_received) {
+          break;
+        }
+
+        std::this_thread::sleep_for(std::chrono::milliseconds(5));
+      }
+
+      all_feedback_received = std::all_of(
+        feedback_received.begin(), feedback_received.end(),
+        [](bool received) { return received; });
+      if (all_feedback_received) {
+        if (attempt > 1) {
+          RCLCPP_WARN(
+            get_logger(),
+            "电机使能在第 %d 轮补发后全部收到首帧反馈。",
+            attempt);
+        }
+        return;
+      }
+
+      std::ostringstream pending_ids;
+      bool first = true;
+      for (size_t i = 0; i < hardware_ids_.size(); ++i) {
+        if (feedback_received[i]) {
+          continue;
+        }
+        if (!first) {
+          pending_ids << ", ";
+        }
+        first = false;
+        pending_ids << hardware_ids_[i];
+      }
+
+      RCLCPP_WARN(
+        get_logger(),
+        "第 %d/%d 轮使能后仍未收到这些电机的首帧反馈: [%s]，将继续补发使能。",
+        attempt,
+        kEnableRetryLimit,
+        pending_ids.str().c_str());
+    }
+
+    std::ostringstream missing_ids;
+    bool first = true;
+    for (size_t i = 0; i < hardware_ids_.size(); ++i) {
+      motor_fbpara_t feedback{};
+      uint64_t feedback_ns = 0;
+      const bool has_feedback =
+        dm_motor_get_feedback_snapshot(hardware_ids_[i], &feedback, &feedback_ns) && feedback_ns != 0;
+      if (has_feedback) {
+        continue;
+      }
+
+      if (!first) {
+        missing_ids << ", ";
+      }
+      first = false;
+      missing_ids << hardware_ids_[i];
+    }
+
+    for (size_t i = 0; i < hardware_ids_.size(); ++i) {
+      if (feedback_received[i]) {
+        dm_motor_disable(&hcan1, &motor[i]);
+      }
+    }
+
+    throw std::runtime_error(
+      "Failed to receive initial motor feedback after enable retries. Missing motor IDs: [" +
+      missing_ids.str() + "]");
   }
 
   void command_callback(const robot_msgs::msg::RobotCommand::SharedPtr msg)
