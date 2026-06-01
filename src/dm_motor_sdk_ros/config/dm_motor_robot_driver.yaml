@@ -13,5 +13,7 @@
     joint2_publish_window: [-0.5, 3.5]
     joint_zero_offsets: [3.12, 0.03, 0.0, 0.012, 0.0]
     motor_pmax: [12.5, 12.5, 12.5, 12.5, 12.566]
-    motor_vmax: [30.0, 10.0, 10.0, 30.0, 50.0]
-    motor_tmax: [10.0, 28.0, 28.0, 10.0, 5.0]
+    motor_vmax: [30.0, 10.0, 30.0, 30.0, 50.0]
+    motor_tmax: [10.0, 28.0, 10.0, 10.0, 5.0]
+    temperature_topic: /arm2/_lowState/temperature
+    temperature_publish_hz: 1.0
