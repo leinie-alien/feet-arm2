@@ -121,10 +121,12 @@ public:
           if (q_current_.size() != 5)
           {
             q_current_ = Eigen::VectorXd::Zero(5);
+            dq_current_ = Eigen::VectorXd::Zero(5);
           }
           for (int i = 0; i < 5; ++i)
           {
             q_current_[i] = msg->motor_state[i].q;
+            dq_current_[i] = msg->motor_state[i].dq;
           }
           has_robot_data_ = true;
         });
@@ -625,10 +627,56 @@ private:
   /** 等待关节速度降到阈值以下（运动稳定）。*/
   void wait_joints_still(double dq_threshold = 0.02, int timeout_ms = 1000)
   {
-    // q_current_ 只存位置，没有速度字段；用固定 sleep 代替速度判断。
-    // 如需精确判断，可在订阅回调中额外缓存 dq。
-    (void)dq_threshold;
-    rclcpp::sleep_for(std::chrono::milliseconds(timeout_ms));
+    const auto deadline = std::chrono::steady_clock::now() +
+                          std::chrono::milliseconds(timeout_ms);
+    auto stable_since = std::chrono::steady_clock::time_point{};
+    bool stable_seen = false;
+
+    while (rclcpp::ok() && is_running_.load())
+    {
+      Eigen::VectorXd dq_snapshot;
+      {
+        std::lock_guard<std::mutex> lock(mtx_);
+        dq_snapshot = dq_current_;
+      }
+
+      const bool has_dq = (dq_snapshot.size() == 5);
+      const bool all_still =
+          has_dq && (dq_snapshot.array().abs() < dq_threshold).all();
+      const auto now = std::chrono::steady_clock::now();
+
+      if (all_still)
+      {
+        if (!stable_seen)
+        {
+          stable_since = now;
+          stable_seen = true;
+        }
+        else if (now - stable_since >= 150ms)
+        {
+          return;
+        }
+      }
+      else
+      {
+        stable_seen = false;
+      }
+
+      if (now >= deadline)
+      {
+        double max_abs_dq = -1.0;
+        if (has_dq)
+        {
+          max_abs_dq = dq_snapshot.cwiseAbs().maxCoeff();
+        }
+        RCLCPP_WARN(this->get_logger(),
+                    "[wait_joints_still] timeout after %d ms, continue with max|dq|=%.4f",
+                    timeout_ms, max_abs_dq);
+        return;
+      }
+
+      rclcpp::sleep_for(20ms);
+    }
   }
 
   /** 复位：关吸盘 → moving → reset → idle */
@@ -884,6 +932,7 @@ private:
     target_pub_->publish(target);
     request_mode_switch("moving");
     do_look_out(target);
+    wait_joints_still(0.02, 800);
 
     if (!do_grasp_move(target))
     {
@@ -1468,6 +1517,7 @@ private:
   arm2_task::TaskState state_;
   std::atomic<bool> has_robot_data_{false};
   Eigen::VectorXd q_current_;
+  Eigen::VectorXd dq_current_;
   std::mutex mtx_;
   std::atomic<bool> driver_ready_{false};
 
