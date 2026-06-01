@@ -108,6 +108,13 @@ ament_target_dependencies(teach_pendant_follow_node
   std_msgs
 )
 
+add_executable(debug_node src/debug_node.cpp)
+ament_target_dependencies(debug_node
+  rclcpp
+  robot_msgs
+  std_msgs
+)
+
 # 5. 分类安装 (核心修复)
 # 将库安装到标准的 lib/ 目录下
 install(TARGETS arm2_algorithms
@@ -126,6 +133,7 @@ install(TARGETS
   trajectory_planner_node
   inverse_dynamics_target_test_node
   teach_pendant_follow_node
+  debug_node
   DESTINATION lib/${PROJECT_NAME}
 )
 

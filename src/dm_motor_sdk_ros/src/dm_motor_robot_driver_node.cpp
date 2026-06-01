@@ -5,6 +5,7 @@
 #include <cstdint>
 #include <cstdio>
 #include <functional>
+#include <limits>
 #include <map>
 #include <memory>
 #include <mutex>
@@ -17,6 +18,7 @@
 
 #include <rclcpp/rclcpp.hpp>
 #include <std_msgs/msg/bool.hpp>
+#include <std_msgs/msg/float32_multi_array.hpp>
 
 #include "robot_msgs/msg/motor_command.hpp"
 #include "robot_msgs/msg/motor_state.hpp"
@@ -152,6 +154,9 @@ public:
     q_jump_threshold_rad_ = declare_parameter<double>("q_jump_threshold_rad", kDefaultQJumpThresholdRad);
     torque_log_period_sec_ =
       declare_parameter<double>("torque_log_period_sec", kDefaultTorqueLogPeriodSec);
+    temperature_topic_ =
+      declare_parameter<std::string>("temperature_topic", "/arm2/_lowState/temperature");
+    temperature_publish_hz_ = declare_parameter<double>("temperature_publish_hz", 1.0);
 
     normalize_motor_ids(motor_ids);
     normalize_feedback_ids(feedback_ids);
@@ -168,6 +173,12 @@ public:
       RCLCPP_WARN(get_logger(), "参数 command_timeout_ms=%ld 过小，已提升到 10ms。", command_timeout_ms);
       command_timeout_ms = 10;
     }
+    if (temperature_publish_hz_ < 0.0) {
+      RCLCPP_WARN(
+        get_logger(), "参数 temperature_publish_hz=%.3f 非法，已关闭温度话题发布。",
+        temperature_publish_hz_);
+      temperature_publish_hz_ = 0.0;
+    }
 
     normalize_vector_param(motor_pmax, "motor_pmax", 12.5);
     normalize_vector_param(motor_vmax, "motor_vmax", 30.0);
@@ -179,6 +190,12 @@ public:
     feedback_timeout_ns_ = static_cast<uint64_t>(feedback_timeout_ms) * 1000000ull;
     command_timeout_ns_ = static_cast<uint64_t>(command_timeout_ms) * 1000000ull;
     joint_zero_offsets_ = joint_zero_offsets;
+    if (temperature_publish_hz_ > 0.0) {
+      temperature_publish_period_ns_ = static_cast<uint64_t>(1000000000.0 / temperature_publish_hz_);
+      if (temperature_publish_period_ns_ == 0) {
+        temperature_publish_period_ns_ = 1;
+      }
+    }
 
     for (const auto raw_id : inverted_ids) {
       if (raw_id < 1 || raw_id > static_cast<int64_t>(num)) {
@@ -233,6 +250,10 @@ public:
     subscription_ = create_subscription<robot_msgs::msg::RobotCommand>(
       "/arm2/_lowCmd/command", state_qos,
       std::bind(&DmMotorRobotDriverNode::command_callback, this, std::placeholders::_1));
+    if (!temperature_topic_.empty() && temperature_publish_hz_ > 0.0) {
+      temperature_publisher_ = create_publisher<std_msgs::msg::Float32MultiArray>(
+        temperature_topic_, state_qos);
+    }
 
     const auto period = std::chrono::duration<double>(1.0 / loop_hz_);
     timer_ = create_wall_timer(
@@ -261,6 +282,13 @@ public:
       "1号电机物理窗口[rad]: [%.3f, %.3f]",
       joint1_angle_window_min_,
       joint1_angle_window_max_);
+    if (temperature_publisher_) {
+      RCLCPP_INFO(
+        get_logger(), "温度话题已启用: topic=%s rate=%.3fHz layout=[motor, sensor(Tmos,Tcoil)]",
+        temperature_topic_.c_str(), temperature_publish_hz_);
+    } else {
+      RCLCPP_INFO(get_logger(), "温度话题发布已关闭。");
+    }
   }
 
   ~DmMotorRobotDriverNode() override
@@ -925,6 +953,7 @@ private:
     feedback_healthy_ = all_feedback_fresh;
     publish_ready_state(interface_ready_ && initial_enable_completed_);
     state_publisher_->publish(state_msg);
+    publish_temperature_if_needed(now_ns);
     log_torque_diagnostics_if_needed(state_msg);
   }
 
@@ -968,9 +997,56 @@ private:
     last_torque_log_time_ = now;
   }
 
+  void publish_temperature_if_needed(uint64_t now_ns)
+  {
+    if (!temperature_publisher_ || temperature_publish_period_ns_ == 0) {
+      return;
+    }
+    if (
+      last_temperature_publish_ns_ != 0 &&
+      now_ns >= last_temperature_publish_ns_ &&
+      (now_ns - last_temperature_publish_ns_) < temperature_publish_period_ns_)
+    {
+      return;
+    }
+
+    std_msgs::msg::Float32MultiArray msg;
+    msg.layout.dim.resize(2);
+    msg.layout.dim[0].label = "motor";
+    msg.layout.dim[0].size = hardware_ids_.size();
+    msg.layout.dim[0].stride = hardware_ids_.size() * 2;
+    msg.layout.dim[1].label = "sensor[Tmos,Tcoil]";
+    msg.layout.dim[1].size = 2;
+    msg.layout.dim[1].stride = 2;
+    msg.layout.data_offset = 0;
+    msg.data.reserve(hardware_ids_.size() * 2);
+
+    const float nan_value = std::numeric_limits<float>::quiet_NaN();
+    for (size_t i = 0; i < hardware_ids_.size(); ++i) {
+      motor_fbpara_t feedback{};
+      uint64_t feedback_ns = 0;
+      const bool has_feedback =
+        dm_motor_get_feedback_snapshot(hardware_ids_[i], &feedback, &feedback_ns);
+      const bool fresh_feedback =
+        has_feedback && feedback_ns <= now_ns && (now_ns - feedback_ns) <= feedback_timeout_ns_;
+      if (!fresh_feedback || !std::isfinite(feedback.Tmos) || !std::isfinite(feedback.Tcoil)) {
+        msg.data.push_back(nan_value);
+        msg.data.push_back(nan_value);
+        continue;
+      }
+
+      msg.data.push_back(feedback.Tmos);
+      msg.data.push_back(feedback.Tcoil);
+    }
+
+    temperature_publisher_->publish(msg);
+    last_temperature_publish_ns_ = now_ns;
+  }
+
   rclcpp::Subscription<robot_msgs::msg::RobotCommand>::SharedPtr subscription_;
   rclcpp::Publisher<robot_msgs::msg::RobotState>::SharedPtr state_publisher_;
   rclcpp::Publisher<std_msgs::msg::Bool>::SharedPtr ready_publisher_;
+  rclcpp::Publisher<std_msgs::msg::Float32MultiArray>::SharedPtr temperature_publisher_;
   rclcpp::TimerBase::SharedPtr timer_;
 
   std::vector<uint16_t> hardware_ids_;
@@ -985,6 +1061,8 @@ private:
   int can_baud_{1000000};
   int canfd_baud_{5000000};
   double loop_hz_{100.0};
+  std::string temperature_topic_;
+  double temperature_publish_hz_{1.0};
 
   bool interface_ready_{false};
   bool feedback_healthy_{false};
@@ -1006,6 +1084,8 @@ private:
   std::vector<double> latest_feedback_unwrapped_q_;
   std::vector<bool> latest_feedback_unwrapped_valid_;
   std::chrono::steady_clock::time_point last_torque_log_time_{};
+  uint64_t temperature_publish_period_ns_{1000000000ull};
+  uint64_t last_temperature_publish_ns_{0};
 };
 
 int main(int argc, char ** argv)
