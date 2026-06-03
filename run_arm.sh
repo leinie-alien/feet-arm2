@@ -21,7 +21,7 @@ WS_SETUP="$WS_DIR/install/setup.bash"
 PARAMS_FILE="${PARAMS_FILE:-$WS_DIR/src/arm2_task/config/params.yaml}"
 DRIVER_PARAMS_FILE="${DRIVER_PARAMS_FILE:-$WS_DIR/src/dm_motor_sdk_ros/config/dm_motor_robot_driver.yaml}"
 SIM_WS="${SIM_WS:-$HOME/data/robotics/arm_mujuco_ws}"
-SUCTION_WS="${SUCTION_WS:-$HOME/data/robotics/ros2_suction_ws}"
+SUCTION_WS="${SUCTION_WS:-$WS_DIR}"
 SUCTION_PORT="${SUCTION_PORT:-/dev/esp32_suction_c3}"
 
 # udev（Damiao USB CAN 适配器）
@@ -74,6 +74,8 @@ Options:
   AUTO_BUILD=true      等同于 --build
   PARAMS_FILE=<path>   等同于 --params
   SIM_WS=<path>        等同于 --sim-ws
+  SUCTION_WS=<path>    吸盘工作区（默认当前工作区）
+  SUCTION_PORT=<path>  吸盘串口设备（默认 /dev/esp32_suction_c3）
 USAGE
 }
 
@@ -241,7 +243,7 @@ source_setup "$ROS_SETUP"
 if [[ "$AUTO_BUILD" == "true" ]]; then
   echo "[run_arm] building packages..."
   (cd "$WS_DIR" && colcon build \
-    --packages-select dm_motor_sdk_ros arm2_task \
+    --packages-select robot_msgs suction_serial_bridge dm_motor_sdk_ros arm2_task \
     --cmake-args -DCMAKE_BUILD_TYPE=Release)
 fi
 
