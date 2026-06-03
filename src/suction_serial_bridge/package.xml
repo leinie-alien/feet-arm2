@@ -1,0 +1,17 @@
+<?xml version="1.0"?>
+<package format="3">
+  <name>suction_serial_bridge</name>
+  <version>0.1.0</version>
+  <description>ROS 2 Humble service bridge for controlling suction via an ESP32-C3 over serial.</description>
+  <maintainer email="primarymage@example.com">primarymage</maintainer>
+  <license>MIT</license>
+
+  <buildtool_depend>ament_cmake</buildtool_depend>
+
+  <depend>rclcpp</depend>
+  <depend>robot_msgs</depend>
+
+  <export>
+    <build_type>ament_cmake</build_type>
+  </export>
+</package>
