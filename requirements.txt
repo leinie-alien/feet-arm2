@@ -1,0 +1,14 @@
+# Core dependencies
+numpy>=1.21.0
+opencv-python>=4.5.0
+ultralytics>=8.0.0
+pyrealsense2>=2.50.0
+
+# ROS 2 dependencies (if using ROS)
+rclpy>=0.10.0
+geometry-msgs>=0.0.1
+robot-msgs>=0.0.1
+
+# Development and testing
+pytest>=6.0.0
+setuptools>=40.0.0
