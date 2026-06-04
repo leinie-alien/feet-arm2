@@ -1,0 +1,4 @@
+string object_name
+---
+bool success
+geometry_msgs/PoseStamped pick_pose
