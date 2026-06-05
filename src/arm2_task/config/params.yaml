@@ -116,8 +116,9 @@
       target_qos_depth: 10
       log_input: false
       joint_names: [joint1, joint2, joint3, joint4, joint5]
-      angle_window_lower: [-3.14159265, -0.5, -3.0, -2.0, -3.14159265]
-      angle_window_upper: [3.14159265, 3.5, 0.15, 1.57, 3.14159265]
+      # 1轴按 ±240° 软件限位保护线束；2轴按 [0, 3.5]，启动时由底层驱动一次性选圈。
+      angle_window_lower: [-4.1887902, 0.0, -3.0, -2.0, -3.14159265]
+      angle_window_upper: [4.1887902, 3.5, 0.15, 1.57, 3.14159265]
     teach_drag_record:
       output_file: recordings/teach_drag_trajectory.yaml
       state_topic: /arm2/_lowState/joint
@@ -141,8 +142,9 @@
       hold_position_on_startup: true
       default_mode: moving
       log_input: false
-      angle_window_lower: [-3.2, -0.5, -3.0, -2.0, -3.14159265]
-      angle_window_upper: [3.2, 3.5, 0.15, 1.57, 3.14159265]
+      # 与 dm_motor_sdk_ros 驱动内部限位保持一致。
+      angle_window_lower: [-4.1887902, 0.0, -3.0, -2.0, -3.14159265]
+      angle_window_upper: [4.1887902, 3.5, 0.15, 1.57, 3.14159265]
       command_velocity_limits: [2.0, 1.5, 2.0, 2.0, 3.0]
       command_torque_limits: [8.0, 20.0, 8.0, 8.0, 4.0]
     gravity_comp_test:
@@ -161,8 +163,8 @@
       max_abs_offset_rad: 0.35
       phase_offsets: [0.0, 0.5, 1.0, 1.4, 1.8]
       active_joint_order: [1, 2, 3, 4, 5]
-      lower_limits: [-3.1415, 0.0, -3.0, -2.0, -3.1415]
-      upper_limits: [3.1415, 3.14159265, 0.15, 1.57, 3.1415]
+      lower_limits: [-4.1887902, 0.0, -3.0, -2.0, -3.1415]
+      upper_limits: [4.1887902, 3.5, 0.15, 1.57, 3.1415]
     control:
       command_topic: /arm2/_lowCmd/command
     urdf_path: urdf/arm2.urdf

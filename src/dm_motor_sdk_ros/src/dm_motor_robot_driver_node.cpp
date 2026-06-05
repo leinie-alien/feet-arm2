@@ -1,4 +1,3 @@
-#include <array>
 #include <algorithm>
 #include <chrono>
 #include <cmath>
@@ -35,10 +34,19 @@ namespace
 {
 
 constexpr size_t kDefaultMotorCount = 5;
-constexpr double kAngleWrapLimit = M_PI;
 constexpr double kFullTurnRad = 2.0 * M_PI;
-constexpr double kJoint1DefaultWindowMin = -4.0 * M_PI / 3.0;
-constexpr double kJoint1DefaultWindowMax = 4.0 * M_PI / 3.0;
+constexpr double kJoint1LowerLimit = -4.0 * M_PI / 3.0;
+constexpr double kJoint1UpperLimit = 4.0 * M_PI / 3.0;
+constexpr double kJoint2LowerLimit = 0.0;
+constexpr double kJoint2UpperLimit = 3.5;
+constexpr double kJoint2WrappedLowerLimit = kJoint2LowerLimit - kFullTurnRad;
+constexpr double kJoint2WrappedUpperLimit = kJoint2UpperLimit - kFullTurnRad;
+constexpr double kJoint3LowerLimit = -3.0;
+constexpr double kJoint3UpperLimit = 0.15;
+constexpr double kJoint4LowerLimit = -2.0;
+constexpr double kJoint4UpperLimit = 1.57;
+constexpr double kJoint5LowerLimit = -M_PI;
+constexpr double kJoint5UpperLimit = M_PI;
 constexpr double kDefaultQJumpThresholdRad = 0.03;
 constexpr double kDefaultTorqueLogPeriodSec = 1.0;
 constexpr int kEnableRetryLimit = 10;
@@ -54,55 +62,6 @@ std::string join_double_vector(const std::vector<double> & values)
     oss << values[i];
   }
   return oss.str();
-}
-
-double normalize_angle_to_two_pi(double angle)
-{
-  const double period = kFullTurnRad;
-  if (!std::isfinite(angle) || period <= 0.0) {
-    return angle;
-  }
-
-  angle = std::fmod(angle + kAngleWrapLimit, period);
-  if (angle < 0.0) {
-    angle += period;
-  }
-  return angle - kAngleWrapLimit;
-}
-
-double shortest_angular_distance(double from, double to)
-{
-  return normalize_angle_to_two_pi(to - from);
-}
-
-double distance_to_interval(double value, double lower, double upper)
-{
-  if (value < lower) {
-    return lower - value;
-  }
-  if (value > upper) {
-    return value - upper;
-  }
-  return 0.0;
-}
-
-double choose_equivalent_angle_near_reference(double angle, double reference)
-{
-  const std::array<double, 3> candidates{
-    angle - kFullTurnRad,
-    angle,
-    angle + kFullTurnRad};
-
-  return *std::min_element(
-    candidates.begin(), candidates.end(),
-    [reference](double lhs, double rhs) {
-      const double lhs_distance = std::abs(lhs - reference);
-      const double rhs_distance = std::abs(rhs - reference);
-      if (lhs_distance != rhs_distance) {
-        return lhs_distance < rhs_distance;
-      }
-      return std::abs(lhs) < std::abs(rhs);
-    });
 }
 
 double clamp_to_interval(double value, double lower, double upper)
@@ -146,11 +105,6 @@ public:
       "motor_tmax", std::vector<double>{10.0, 28.0, 10.0, 10.0, 5.0});
     auto joint_zero_offsets = declare_parameter<std::vector<double>>(
       "joint_zero_offsets", std::vector<double>{-0.02, 0.14, 0.1, 0.361, 0.0});
-    auto joint1_angle_window = declare_parameter<std::vector<double>>(
-      "joint1_angle_window",
-      std::vector<double>{kJoint1DefaultWindowMin, kJoint1DefaultWindowMax});
-    auto joint2_publish_window = declare_parameter<std::vector<double>>(
-      "joint2_publish_window", std::vector<double>{-0.5, 3.5});
     q_jump_threshold_rad_ = declare_parameter<double>("q_jump_threshold_rad", kDefaultQJumpThresholdRad);
     torque_log_period_sec_ =
       declare_parameter<double>("torque_log_period_sec", kDefaultTorqueLogPeriodSec);
@@ -184,8 +138,6 @@ public:
     normalize_vector_param(motor_vmax, "motor_vmax", 30.0);
     normalize_vector_param(motor_tmax, "motor_tmax", 10.0);
     normalize_vector_param(joint_zero_offsets, "joint_zero_offsets", 0.0);
-    normalize_joint1_angle_window(joint1_angle_window);
-    normalize_joint2_publish_window(joint2_publish_window);
 
     feedback_timeout_ns_ = static_cast<uint64_t>(feedback_timeout_ms) * 1000000ull;
     command_timeout_ns_ = static_cast<uint64_t>(command_timeout_ms) * 1000000ull;
@@ -215,8 +167,7 @@ public:
     dm_motor_init();
     cached_commands_.resize(hardware_ids_.size());
     q_jump_reject_counts_.assign(hardware_ids_.size(), 0);
-    latest_feedback_unwrapped_q_.assign(hardware_ids_.size(), 0.0);
-    latest_feedback_unwrapped_valid_.assign(hardware_ids_.size(), false);
+    feedback_position_biases_.assign(hardware_ids_.size(), 0.0);
     last_torque_log_time_ = std::chrono::steady_clock::now();
 
     for (size_t i = 0; i < hardware_ids_.size(); ++i) {
@@ -271,17 +222,18 @@ public:
     }
     RCLCPP_INFO(
       get_logger(),
-      "2号电机定制发布区间: enabled=%s window=[%.3f, %.3f]",
-      joint2_publish_window_enabled_ ? "true" : "false",
-      joint2_publish_window_min_,
-      joint2_publish_window_max_);
+      "1号电机 ROS 限位[rad]: [%.3f, %.3f]",
+      kJoint1LowerLimit,
+      kJoint1UpperLimit);
     RCLCPP_INFO(
       get_logger(), "关节零点偏置[rad]: [%s]", join_double_vector(joint_zero_offsets_).c_str());
     RCLCPP_INFO(
       get_logger(),
-      "1号电机物理窗口[rad]: [%.3f, %.3f]",
-      joint1_angle_window_min_,
-      joint1_angle_window_max_);
+      "2号电机 ROS 限位[rad]: [%.3f, %.3f], 启动判圈窗口[rad]: [%.3f, %.3f]",
+      kJoint2LowerLimit,
+      kJoint2UpperLimit,
+      kJoint2WrappedLowerLimit,
+      kJoint2WrappedUpperLimit);
     if (temperature_publisher_) {
       RCLCPP_INFO(
         get_logger(), "温度话题已启用: topic=%s rate=%.3fHz layout=[motor, sensor(Tmos,Tcoil)]",
@@ -380,264 +332,79 @@ private:
     }
   }
 
-  void normalize_joint2_publish_window(const std::vector<double> & window)
-  {
-    joint2_publish_window_enabled_ = false;
-    joint2_publish_window_min_ = -0.5;
-    joint2_publish_window_max_ = 3.5;
-
-    if (window.size() != 2) {
-      RCLCPP_WARN(
-        get_logger(),
-        "参数 joint2_publish_window 长度为 %zu，期望为 2。将使用默认区间 [-0.5, 3.5]。",
-        window.size());
-      joint2_publish_window_enabled_ = true;
-      return;
-    }
-
-    if (!std::isfinite(window[0]) || !std::isfinite(window[1]) || window[0] >= window[1]) {
-      RCLCPP_WARN(
-        get_logger(),
-        "参数 joint2_publish_window 非法([%.3f, %.3f])。将使用默认区间 [-0.5, 3.5]。",
-        window[0], window[1]);
-      joint2_publish_window_enabled_ = true;
-      return;
-    }
-
-    joint2_publish_window_min_ = window[0];
-    joint2_publish_window_max_ = window[1];
-    joint2_publish_window_enabled_ = true;
-  }
-
-  void normalize_joint1_angle_window(const std::vector<double> & window)
-  {
-    joint1_angle_window_min_ = kJoint1DefaultWindowMin;
-    joint1_angle_window_max_ = kJoint1DefaultWindowMax;
-
-    if (window.size() != 2) {
-      RCLCPP_WARN(
-        get_logger(),
-        "参数 joint1_angle_window 长度为 %zu，期望为 2。将使用默认区间 [%.3f, %.3f]。",
-        window.size(),
-        kJoint1DefaultWindowMin,
-        kJoint1DefaultWindowMax);
-      return;
-    }
-
-    if (!std::isfinite(window[0]) || !std::isfinite(window[1]) || window[0] >= window[1]) {
-      RCLCPP_WARN(
-        get_logger(),
-        "参数 joint1_angle_window 非法([%.3f, %.3f])。将使用默认区间 [%.3f, %.3f]。",
-        window[0],
-        window[1],
-        kJoint1DefaultWindowMin,
-        kJoint1DefaultWindowMax);
-      return;
-    }
-
-    joint1_angle_window_min_ = window[0];
-    joint1_angle_window_max_ = window[1];
-  }
-
-  double normalize_published_angle(uint16_t motor_id, double q)
+  double clamp_ros_joint_angle(uint16_t motor_id, double q) const
   {
     if (motor_id == 1) {
-      return normalize_joint1_published_angle(q);
+      return clamp_to_interval(q, kJoint1LowerLimit, kJoint1UpperLimit);
     }
-    if (motor_id == 2 && joint2_publish_window_enabled_) {
-      return normalize_joint2_published_angle(q);
+    if (motor_id == 2) {
+      return clamp_to_interval(q, kJoint2LowerLimit, kJoint2UpperLimit);
     }
-    return normalize_angle_to_two_pi(q);
+    if (motor_id == 3) {
+      return clamp_to_interval(q, kJoint3LowerLimit, kJoint3UpperLimit);
+    }
+    if (motor_id == 4) {
+      return clamp_to_interval(q, kJoint4LowerLimit, kJoint4UpperLimit);
+    }
+    if (motor_id == 5) {
+      return clamp_to_interval(q, kJoint5LowerLimit, kJoint5UpperLimit);
+    }
+    return q;
   }
 
-  double choose_joint1_windowed_angle(double angle, bool has_reference, double reference) const
+  void initialize_joint2_turn_bias()
   {
-    const std::array<double, 3> candidates{angle - kFullTurnRad, angle, angle + kFullTurnRad};
-    const double center = 0.5 * (joint1_angle_window_min_ + joint1_angle_window_max_);
-
-    const auto best_it = std::min_element(
-      candidates.begin(), candidates.end(),
-      [&](double lhs, double rhs) {
-        const double lhs_window_distance =
-          distance_to_interval(lhs, joint1_angle_window_min_, joint1_angle_window_max_);
-        const double rhs_window_distance =
-          distance_to_interval(rhs, joint1_angle_window_min_, joint1_angle_window_max_);
-        if (lhs_window_distance != rhs_window_distance) {
-          return lhs_window_distance < rhs_window_distance;
-        }
-
-        if (has_reference) {
-          const double lhs_continuity = std::abs(lhs - reference);
-          const double rhs_continuity = std::abs(rhs - reference);
-          if (lhs_continuity != rhs_continuity) {
-            return lhs_continuity < rhs_continuity;
-          }
-        } else {
-          const double lhs_shift = std::abs(lhs - angle);
-          const double rhs_shift = std::abs(rhs - angle);
-          if (lhs_shift != rhs_shift) {
-            return lhs_shift < rhs_shift;
-          }
-        }
-
-        const double lhs_center_distance = std::abs(lhs - center);
-        const double rhs_center_distance = std::abs(rhs - center);
-        if (lhs_center_distance != rhs_center_distance) {
-          return lhs_center_distance < rhs_center_distance;
-        }
-
-        return lhs < rhs;
-      });
-
-    return *best_it;
-  }
-
-  double normalize_joint1_published_angle(double q)
-  {
-    const auto last_it = last_valid_states_.find(1);
-    const bool has_last_valid_q = last_it != last_valid_states_.end() && last_it->second.valid;
-    const double last_q = has_last_valid_q ? static_cast<double>(last_it->second.q) : 0.0;
-    const double best_candidate = choose_joint1_windowed_angle(q, has_last_valid_q, last_q);
-    const double best_distance_to_window =
-      distance_to_interval(best_candidate, joint1_angle_window_min_, joint1_angle_window_max_);
-
-    if (best_distance_to_window > 0.0) {
-      RCLCPP_WARN_THROTTLE(
-        get_logger(), *get_clock(), 1000,
-        "1号电机角度 %.4f rad 的 ±2pi 等效值均不在物理窗口 [%.4f, %.4f] 内，选择最接近窗口的候选 %.4f rad (distance=%.4f).",
-        q,
-        joint1_angle_window_min_,
-        joint1_angle_window_max_,
-        best_candidate,
-        best_distance_to_window);
-    }
-
-    return clamp_to_interval(best_candidate, joint1_angle_window_min_, joint1_angle_window_max_);
-  }
-
-  double normalize_joint2_published_angle(double q)
-  {
-    const std::array<double, 3> candidates{q - kFullTurnRad, q, q + kFullTurnRad};
-    const auto last_it = last_valid_states_.find(2);
-    const bool has_last_valid_q = last_it != last_valid_states_.end() && last_it->second.valid;
-    const double last_q = has_last_valid_q ? static_cast<double>(last_it->second.q) : 0.0;
-    const double center = 0.5 * (joint2_publish_window_min_ + joint2_publish_window_max_);
-
-    const auto choose_better_candidate = [&](double lhs, double rhs) {
-      const double lhs_interval_distance =
-        distance_to_interval(lhs, joint2_publish_window_min_, joint2_publish_window_max_);
-      const double rhs_interval_distance =
-        distance_to_interval(rhs, joint2_publish_window_min_, joint2_publish_window_max_);
-      if (lhs_interval_distance != rhs_interval_distance) {
-        return lhs_interval_distance < rhs_interval_distance;
+    for (size_t i = 0; i < hardware_ids_.size(); ++i) {
+      if (hardware_ids_[i] != 2) {
+        continue;
       }
 
-      if (has_last_valid_q) {
-        const double lhs_continuity = std::abs(lhs - last_q);
-        const double rhs_continuity = std::abs(rhs - last_q);
-        if (lhs_continuity != rhs_continuity) {
-          return lhs_continuity < rhs_continuity;
-        }
+      motor_fbpara_t feedback{};
+      uint64_t feedback_ns = 0;
+      const bool has_feedback =
+        dm_motor_get_feedback_snapshot(hardware_ids_[i], &feedback, &feedback_ns) && feedback_ns != 0;
+      if (!has_feedback || !std::isfinite(feedback.pos)) {
+        RCLCPP_WARN(
+          get_logger(),
+          "2号电机启动时未拿到有效位置反馈，启动判圈回退为 0 圈偏置。");
+        feedback_position_biases_[i] = 0.0;
+        return;
       }
 
-      const double lhs_center_distance = std::abs(lhs - center);
-      const double rhs_center_distance = std::abs(rhs - center);
-      if (lhs_center_distance != rhs_center_distance) {
-        return lhs_center_distance < rhs_center_distance;
-      }
-
-      return lhs < rhs;
-    };
-
-    const auto best_it = std::min_element(
-      candidates.begin(), candidates.end(),
-      [&](double lhs, double rhs) {
-        return choose_better_candidate(lhs, rhs);
-      });
-
-    const double best_candidate = *best_it;
-    const double best_distance_to_window =
-      distance_to_interval(best_candidate, joint2_publish_window_min_, joint2_publish_window_max_);
-    if (best_distance_to_window > 0.0) {
-      RCLCPP_WARN_THROTTLE(
-        get_logger(), *get_clock(), 1000,
-        "2号电机角度 %.4f rad 的 ±2pi 等效值均不在发布区间 [%.4f, %.4f] 内，选择最接近区间的候选 %.4f rad (distance=%.4f).",
-        q,
-        joint2_publish_window_min_,
-        joint2_publish_window_max_,
-        best_candidate,
-        best_distance_to_window);
-    }
-
-    return best_candidate;
-  }
-
-  double reconstruct_command_angle(size_t index, double command_q)
-  {
-    const uint16_t motor_id = hardware_ids_[index];
-    if (motor_id == 1) {
-      return reconstruct_joint1_command_angle(index, command_q);
-    }
-    if (motor_id != 2 || !joint2_publish_window_enabled_) {
-      return command_q;
-    }
-    return reconstruct_joint2_command_angle(index, command_q);
-  }
-
-  double reconstruct_joint1_command_angle(size_t index, double command_q)
-  {
-    double reconstructed_q;
-
-    if (index < latest_feedback_unwrapped_valid_.size() && latest_feedback_unwrapped_valid_[index]) {
-      reconstructed_q =
-        choose_joint1_windowed_angle(command_q, true, latest_feedback_unwrapped_q_[index]);
-    } else {
-      const auto last_it = last_valid_states_.find(1);
-      if (last_it != last_valid_states_.end() && last_it->second.valid) {
-        reconstructed_q = choose_joint1_windowed_angle(
-          command_q, true, static_cast<double>(last_it->second.q));
+      const double direction = should_invert(hardware_ids_[i]) ? -1.0 : 1.0;
+      const double q_base = direction * static_cast<double>(feedback.pos) - joint_zero_offsets_[i];
+      if (q_base >= kJoint2LowerLimit && q_base <= kJoint2UpperLimit) {
+        feedback_position_biases_[i] = 0.0;
+      } else if (q_base >= kJoint2WrappedLowerLimit && q_base <= kJoint2WrappedUpperLimit) {
+        feedback_position_biases_[i] = kFullTurnRad;
       } else {
-        reconstructed_q = choose_joint1_windowed_angle(command_q, false, 0.0);
+        feedback_position_biases_[i] = 0.0;
+        RCLCPP_WARN(
+          get_logger(),
+          "2号电机启动位置 %.4f rad 不在期望区间 [%.4f, %.4f] 或 [%.4f, %.4f] 内，回退为 0 圈偏置。",
+          q_base,
+          kJoint2LowerLimit,
+          kJoint2UpperLimit,
+          kJoint2WrappedLowerLimit,
+          kJoint2WrappedUpperLimit);
       }
+
+      RCLCPP_INFO(
+        get_logger(),
+        "2号电机启动判圈: q_base=%.4f rad, bias=%.4f rad, q_ros=%.4f rad",
+        q_base,
+        feedback_position_biases_[i],
+        clamp_ros_joint_angle(hardware_ids_[i], q_base + feedback_position_biases_[i]));
+      return;
     }
-
-    return clamp_to_interval(
-      reconstructed_q, joint1_angle_window_min_, joint1_angle_window_max_);
-  }
-
-  double reconstruct_joint2_command_angle(size_t index, double command_q)
-  {
-    const std::array<double, 3> candidates{
-      command_q - kFullTurnRad, command_q, command_q + kFullTurnRad};
-
-    if (index < latest_feedback_unwrapped_valid_.size() && latest_feedback_unwrapped_valid_[index]) {
-      const double reference = latest_feedback_unwrapped_q_[index];
-      return *std::min_element(
-        candidates.begin(), candidates.end(),
-        [reference](double lhs, double rhs) {
-          return std::abs(lhs - reference) < std::abs(rhs - reference);
-        });
-    }
-
-    const auto last_it = last_valid_states_.find(2);
-    if (last_it != last_valid_states_.end() && last_it->second.valid) {
-      const double reference = static_cast<double>(last_it->second.q);
-      return *std::min_element(
-        candidates.begin(), candidates.end(),
-        [reference](double lhs, double rhs) {
-          return std::abs(lhs - reference) < std::abs(rhs - reference);
-        });
-    }
-
-    return normalize_joint2_published_angle(command_q);
   }
 
   double command_q_to_motor_pos_set(size_t index, double command_q)
   {
     const uint16_t motor_id = hardware_ids_[index];
     const double direction = should_invert(motor_id) ? -1.0 : 1.0;
-    const double reconstructed_q = reconstruct_command_angle(index, command_q);
-    return direction * (reconstructed_q + joint_zero_offsets_[index]);
+    const double limited_q = clamp_ros_joint_angle(motor_id, command_q);
+    return direction * (limited_q - feedback_position_biases_[index] + joint_zero_offsets_[index]);
   }
 
   bool should_invert(uint16_t motor_id) const
@@ -743,6 +510,7 @@ private:
             "电机使能在第 %d 轮补发后全部收到首帧反馈。",
             attempt);
         }
+        initialize_joint2_turn_bias();
         return;
       }
 
@@ -919,15 +687,13 @@ private:
       }
 
       q = direction * q - joint_zero_offsets_[i];
-      latest_feedback_unwrapped_q_[i] = q;
-      latest_feedback_unwrapped_valid_[i] = true;
-      q = normalize_published_angle(motor_id, q);
+      q += feedback_position_biases_[i];
+      q = clamp_ros_joint_angle(motor_id, q);
       dq = direction * dq;
       tau = direction * tau;
 
       if (had_valid_feedback) {
-        const double q_delta =
-          std::abs(shortest_angular_distance(static_cast<double>(last_valid_it->second.q), q));
+        const double q_delta = std::abs(static_cast<double>(last_valid_it->second.q) - q);
         if (q_delta > q_jump_threshold_rad_) {
           all_feedback_fresh = false;
           ++q_jump_reject_counts_[i];
@@ -1075,14 +841,8 @@ private:
   bool has_valid_command_{false};
   double q_jump_threshold_rad_{kDefaultQJumpThresholdRad};
   double torque_log_period_sec_{kDefaultTorqueLogPeriodSec};
-  double joint1_angle_window_min_{kJoint1DefaultWindowMin};
-  double joint1_angle_window_max_{kJoint1DefaultWindowMax};
-  bool joint2_publish_window_enabled_{true};
-  double joint2_publish_window_min_{-0.5};
-  double joint2_publish_window_max_{3.5};
   std::vector<uint64_t> q_jump_reject_counts_;
-  std::vector<double> latest_feedback_unwrapped_q_;
-  std::vector<bool> latest_feedback_unwrapped_valid_;
+  std::vector<double> feedback_position_biases_;
   std::chrono::steady_clock::time_point last_torque_log_time_{};
   uint64_t temperature_publish_period_ns_{1000000000ull};
   uint64_t last_temperature_publish_ns_{0};
