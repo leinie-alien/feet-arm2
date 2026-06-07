@@ -1,0 +1,13 @@
+/**:
+  ros__parameters:
+    port: '/dev/ftservo_hls3625'
+    baud: 1000000
+    publish_hz: 30.0
+    position_low_pass_alpha: 0.3
+    velocity_low_pass_alpha: 0.6
+    ids: [1, 2, 3, 4, 5]
+    joint_names: ['joint1', 'joint2', 'joint3', 'joint4', 'joint5']
+    zero_offsets_raw: [3166, 2994, 2074, 4285, 2115]
+    directions: [-1, -1, -1, -1, -1]
+    move_speed_raw: 1200
+    move_acc_raw: 20
