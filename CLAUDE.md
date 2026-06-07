@@ -103,6 +103,14 @@ pinocchio::SE3 forwardKinematics(const Eigen::VectorXd& q);
 | 指令下发 | `/arm2/_lowCmd/command` | `robot_msgs/msg/RobotCommand` |
 | 驱动就绪 | `/robot_driver/ready` | `std_msgs/msg/Bool` (transient_local) |
 
+位置模型约定：
+
+- 编码器本体是单圈绝对值，但底层电机驱动器在每次上电后会自行记圈，所以 `/arm2/_lowState/joint` 中的 `q` 按连续位置理解。
+- `joint_zero_offsets` 只做硬件零点到 ROS 零点的小量微调，不承担判圈职责。
+- 1轴在驱动内部直接按 `±240°` 软件限位，主要用于防止过转扯线。
+- 2轴机械范围按 `[0, 3.5] rad` 处理；如果启动首帧反馈落在 `[-2pi, 3.5-2pi]`，底层驱动会一次性补 `+2pi` 选圈，之后整次上电周期保持固定偏置，不做运行时动态判圈。
+- 3/4/5轴只做零点微调和硬限位。
+
 ### control_node 提供
 
 | 类型 | 名称 | 说明 |

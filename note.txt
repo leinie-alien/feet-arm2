@@ -69,3 +69,41 @@
   ├────────────────────────────┼────────────────────────────────────┤           
   │ 最大风险点                 │ 相机外参 pos/quat 是否经过实测标定 │           
   └────────────────────────────┴────────────────────────────────────┘ 
+  
+  
+  
+    根本原因                                                                      
+                                                                                
+  两个 workspace 的 GetPickPos.srv 不一致：                                  
+                                                                                
+  - arm（task_node 消费方）：response 有 bool success + pick_pose               
+  - neweyes（感知服务提供方）：response 只有 pick_pose（旧版）                  
+                                                                                
+  ROS2 的消息序列化按字段顺序排列，两边布局不一致时 task_node 解析到的 response 
+  内存已经错位，访问 pick_pose.header.frame_id 时读到非法地址 → 段错误。        
+                                                                                
+  做了什么修复                                                               
+
+  1. neweyes/src/robot_msgs/srv/GetPickPos.srv — 加上 bool success 字段，与 arm 
+  workspace 同步
+  2. neweyes/.../realtime_inference.py — 服务回调里填充 response.success =      
+  True/False                                                                    
+  3. arm/src/arm2_task/src/task_node.cpp — call_pick_service_sync 里加了
+  response == nullptr 和 !response->success 的防护检查，避免未来类似问题再崩溃  
+                                                                             
+
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  

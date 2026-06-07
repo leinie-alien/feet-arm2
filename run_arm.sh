@@ -326,17 +326,18 @@ fi
 #  任务层：task_node（可选 xterm）
 # ------------------------------------------------------------------ #
 
-echo "[run_arm] launching task_node..."
+TASK_LOG="/tmp/task_node_debug.log"
+echo "[run_arm] launching task_node... (log: $TASK_LOG)"
 if [[ "$TASK_IN_XTERM" == "true" ]]; then
   launch_in_group TASK_PID \
     xterm -hold -u8 -T "Arm — Task Control Panel" \
       -fn "-misc-fixed-medium-r-normal--18-120-100-100-c-90-iso10646-1" \
-      -e ros2 run arm2_task task_node \
-           --ros-args --params-file "$PARAMS_FILE"
+      -e bash -c "ros2 run arm2_task task_node \
+           --ros-args --params-file '$PARAMS_FILE' 2>&1 | tee '$TASK_LOG'"
 else
   launch_in_group TASK_PID \
     ros2 run arm2_task task_node \
-      --ros-args --params-file "$PARAMS_FILE"
+      --ros-args --params-file "$PARAMS_FILE" 2>&1 | tee "$TASK_LOG"
 fi
 
 echo ""
