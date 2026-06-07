@@ -56,19 +56,6 @@ add_library(dm_motor_protocol
   src/dm_motor_ctrl.c
 )
 
-add_executable(dm_motor_minimal_node
-  src/dm_motor_minimal_node.cpp
-)
-ament_target_dependencies(dm_motor_minimal_node
-  rclcpp
-  std_msgs
-)
-target_link_libraries(dm_motor_minimal_node
-  dm_motor_protocol
-  dm_sdk_can_bsp
-  ${LIBUSB_LIBRARIES}
-)
-
 add_executable(dm_motor_robot_driver_node
   src/dm_motor_robot_driver_node.cpp
 )
@@ -81,15 +68,6 @@ target_link_libraries(dm_motor_robot_driver_node
   dm_motor_protocol
   dm_sdk_can_bsp
   ${LIBUSB_LIBRARIES}
-)
-
-add_executable(dm_motor_robot_stress_node
-  src/dm_motor_robot_stress_node.cpp
-)
-ament_target_dependencies(dm_motor_robot_stress_node
-  rclcpp
-  robot_msgs
-  std_msgs
 )
 
 add_executable(dm_motor_sdk_example
@@ -110,7 +88,7 @@ target_link_libraries(dm_motor_sdk_stress_test
   ${LIBUSB_LIBRARIES}
 )
 
-set_target_properties(dm_sdk_can_bsp dm_motor_minimal_node dm_motor_robot_driver_node dm_motor_robot_stress_node dm_motor_sdk_example dm_motor_sdk_stress_test PROPERTIES
+set_target_properties(dm_sdk_can_bsp dm_motor_robot_driver_node dm_motor_sdk_example dm_motor_sdk_stress_test PROPERTIES
   BUILD_RPATH "${DM_SDK_DIR};${DM_RUNTIME_DIR}"
   INSTALL_RPATH "\$ORIGIN;\$ORIGIN/.."
   INSTALL_RPATH_USE_LINK_PATH FALSE
@@ -119,9 +97,7 @@ set_target_properties(dm_sdk_can_bsp dm_motor_minimal_node dm_motor_robot_driver
 install(TARGETS
   dm_sdk_can_bsp
   dm_motor_protocol
-  dm_motor_minimal_node
   dm_motor_robot_driver_node
-  dm_motor_robot_stress_node
   dm_motor_sdk_example
   dm_motor_sdk_stress_test
   ARCHIVE DESTINATION lib
@@ -146,9 +122,7 @@ install(FILES
 )
 
 install(FILES
-  launch/dm_motor_minimal.launch.py
   launch/dm_motor_robot_driver.launch.py
-  launch/dm_motor_robot_stress.launch.py
   DESTINATION share/${PROJECT_NAME}/launch
 )
 
