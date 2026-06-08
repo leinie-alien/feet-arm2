@@ -28,6 +28,7 @@
 #include "robot_msgs/msg/robot_state.hpp"
 #include "robot_msgs/srv/get_payload_estimate.hpp"
 #include "robot_msgs/srv/get_pick_pos.hpp"
+#include "robot_msgs/srv/get_place_pos.hpp"
 #include "robot_msgs/srv/set_controller_mode.hpp"
 #include "robot_msgs/srv/set_suction.hpp"
 #include "std_msgs/msg/bool.hpp"
@@ -93,6 +94,28 @@ public:
     place_retreat_offset_ = this->declare_parameter("task_place.retreat_offset", 0.15);
     tool_tip_length_ = this->declare_parameter("task_step6.tool_tip_length", 0.0);
 
+    // Place-frame parameters (狗头相机放置)
+    place_frame_hover_height_  = this->declare_parameter("task_place_frame.hover_height",   0.25);
+    place_frame_contact_offset_= this->declare_parameter("task_place_frame.contact_offset",  0.0);
+    place_frame_name_          = this->declare_parameter("task_place_frame.frame_name",      std::string("target_frame"));
+    place_frame_roll_sign_     = this->declare_parameter("task_place_frame.roll_sign",        1.0);
+    place_frame_use_mock_      = this->declare_parameter("task_place_frame.use_mock_target", false);
+    place_frame_mock_x_        = this->declare_parameter("task_place_frame.mock_x",           0.35);
+    place_frame_mock_y_        = this->declare_parameter("task_place_frame.mock_y",           0.0);
+    place_frame_mock_z_        = this->declare_parameter("task_place_frame.mock_z",           0.0);
+    place_frame_mock_yaw_      = this->declare_parameter("task_place_frame.mock_yaw",         0.0);
+
+    // Stack parameters (箱子叠放，task_stack)
+    stack_hover_height_   = this->declare_parameter("task_stack.hover_height",    0.05);
+    stack_contact_offset_ = this->declare_parameter("task_stack.contact_offset",  0.25);
+    stack_service_name_   = this->declare_parameter("task_stack.stack_service",   std::string("get_stack_pos"));
+    stack_roll_sign_      = this->declare_parameter("task_stack.roll_sign",        1.0);
+    stack_use_mock_       = this->declare_parameter("task_stack.use_mock_target", false);
+    stack_mock_x_         = this->declare_parameter("task_stack.mock_x",           0.35);
+    stack_mock_y_         = this->declare_parameter("task_stack.mock_y",           0.0);
+    stack_mock_z_         = this->declare_parameter("task_stack.mock_z",           0.1);
+    stack_mock_yaw_       = this->declare_parameter("task_stack.mock_yaw",         0.0);
+
     // Phase-2 alignment parameters
     align_threshold_ = this->declare_parameter("visual_align.align_threshold", 0.005);
     align_max_iters_ = this->declare_parameter("visual_align.max_iters", 5);
@@ -145,6 +168,8 @@ public:
 
     // ── Service & Action Clients ───────────────────────────────────────────
     pick_client_ = this->create_client<robot_msgs::srv::GetPickPos>("get_pick_pos");
+    place_client_ = this->create_client<robot_msgs::srv::GetPlacePos>("get_place_pos");
+    stack_client_ = this->create_client<robot_msgs::srv::GetPlacePos>("get_stack_pos");
     suction_client_ = this->create_client<robot_msgs::srv::SetSuction>("set_suction");
     mode_client_ = this->create_client<robot_msgs::srv::SetControllerMode>("set_controller_mode");
     payload_client_ = this->create_client<robot_msgs::srv::GetPayloadEstimate>("get_payload_estimate");
@@ -466,6 +491,303 @@ private:
       RCLCPP_ERROR(this->get_logger(), "TF2 error: %s", ex.what());
       return false;
     }
+  }
+
+
+  bool call_place_service_sync(const std::string &frame_name,
+                               geometry_msgs::msg::Pose *out_pose)
+  {
+    if (!place_client_->wait_for_service(1s))
+    {
+      RCLCPP_WARN(this->get_logger(), "get_place_pos service not available");
+      return false;
+    }
+
+    auto request = std::make_shared<robot_msgs::srv::GetPlacePos::Request>();
+    request->frame_name = frame_name;
+
+    auto result_future = place_client_->async_send_request(request);
+    if (result_future.wait_for(15s) != std::future_status::ready)
+    {
+      RCLCPP_ERROR(this->get_logger(), "get_place_pos service call timed out (waited 15 seconds)");
+      return false;
+    }
+
+    const auto response = result_future.get();
+    if (!response)
+    {
+      RCLCPP_ERROR(this->get_logger(), "get_place_pos service call returned null response");
+      return false;
+    }
+    if (!response->success)
+    {
+      RCLCPP_ERROR(this->get_logger(), "get_place_pos service returned failure (success=false)");
+      return false;
+    }
+
+    const std::string frame_id = response->place_pose.header.frame_id;
+    if (frame_id.empty())
+    {
+      RCLCPP_ERROR(this->get_logger(), "get_place_pos returned empty frame_id");
+      return false;
+    }
+
+    try
+    {
+      geometry_msgs::msg::TransformStamped t_stamped = tf_buffer_->lookupTransform(
+          "world", frame_id, tf2::TimePointZero, tf2::durationFromSec(1.0));
+
+      if (out_pose != nullptr)
+      {
+        geometry_msgs::msg::PoseStamped pose_world;
+        tf2::doTransform(response->place_pose, pose_world, t_stamped);
+        *out_pose = pose_world.pose;
+        RCLCPP_INFO(this->get_logger(),
+                    "get_place_pos frame=%s -> world=(%.3f, %.3f, %.3f)",
+                    frame_id.c_str(),
+                    out_pose->position.x, out_pose->position.y, out_pose->position.z);
+      }
+      return true;
+    }
+    catch (const tf2::TransformException &ex)
+    {
+      RCLCPP_ERROR(this->get_logger(), "TF2 error in call_place_service_sync: %s", ex.what());
+      return false;
+    }
+  }
+
+  bool call_stack_service_sync(const std::string &frame_name,
+                               geometry_msgs::msg::Pose *out_pose)
+  {
+    if (!stack_client_->wait_for_service(1s))
+    {
+      RCLCPP_WARN(this->get_logger(), "get_stack_pos service not available");
+      return false;
+    }
+
+    auto request = std::make_shared<robot_msgs::srv::GetPlacePos::Request>();
+    request->frame_name = frame_name;
+
+    auto result_future = stack_client_->async_send_request(request);
+    if (result_future.wait_for(15s) != std::future_status::ready)
+    {
+      RCLCPP_ERROR(this->get_logger(), "get_stack_pos service call timed out");
+      return false;
+    }
+
+    const auto response = result_future.get();
+    if (!response || !response->success)
+    {
+      RCLCPP_ERROR(this->get_logger(), "get_stack_pos service returned failure");
+      return false;
+    }
+
+    const std::string frame_id = response->place_pose.header.frame_id;
+    if (frame_id.empty())
+    {
+      RCLCPP_ERROR(this->get_logger(), "get_stack_pos returned empty frame_id");
+      return false;
+    }
+
+    try
+    {
+      geometry_msgs::msg::TransformStamped t_stamped = tf_buffer_->lookupTransform(
+          "world", frame_id, tf2::TimePointZero, tf2::durationFromSec(1.0));
+
+      if (out_pose != nullptr)
+      {
+        geometry_msgs::msg::PoseStamped pose_world;
+        tf2::doTransform(response->place_pose, pose_world, t_stamped);
+        *out_pose = pose_world.pose;
+        RCLCPP_INFO(this->get_logger(),
+                    "get_stack_pos frame=%s -> world=(%.3f, %.3f, %.3f)",
+                    frame_id.c_str(),
+                    out_pose->position.x, out_pose->position.y, out_pose->position.z);
+      }
+      return true;
+    }
+    catch (const tf2::TransformException &ex)
+    {
+      RCLCPP_ERROR(this->get_logger(), "TF2 error in call_stack_service_sync: %s", ex.what());
+      return false;
+    }
+  }
+
+  double get_frame_yaw(const geometry_msgs::msg::Pose &frame_world)
+  {
+    const auto &q = frame_world.orientation;
+    const double frame_yaw = std::atan2(
+        2.0 * (q.w * q.z + q.x * q.y),
+        1.0 - 2.0 * (q.y * q.y + q.z * q.z));
+
+    const double joint0_ik = std::atan2(
+        frame_world.position.y, frame_world.position.x);
+
+    const double tool_roll = normalize_angle(
+        place_frame_roll_sign_ * (frame_yaw - joint0_ik));
+
+    RCLCPP_INFO(this->get_logger(),
+                "[get_frame_yaw] frame_yaw=%.3f joint0_ik=%.3f tool_roll=%.3f",
+                frame_yaw, joint0_ik, tool_roll);
+    return tool_roll;
+  }
+
+  bool do_place_move_with_orientation(const geometry_msgs::msg::Pose &frame_world)
+  {
+    const double tool_roll = get_frame_yaw(frame_world);
+    const double pitch = grasp_pitch_ + tool_pitch_offset_;
+
+    const Eigen::Vector3d ee_target(
+        frame_world.position.x,
+        frame_world.position.y,
+        frame_world.position.z + place_frame_contact_offset_);
+
+    const Eigen::Vector3d pre_target(
+        ee_target.x(), ee_target.y(), ee_target.z() + place_frame_hover_height_);
+
+    RCLCPP_INFO(this->get_logger(),
+                "[place_frame] ee_z=%.3f pre_z=%.3f pitch=%.2f roll=%.2f",
+                ee_target.z(), pre_target.z(), pitch, tool_roll);
+
+    Eigen::VectorXd q_pre(5), q_place(5);
+    if (!kin_engine_->solveIK(pre_target, pitch, tool_roll, q_pre))
+    {
+      RCLCPP_ERROR(this->get_logger(),
+                   "[place_frame] IK failed for pre-place (%.3f, %.3f, %.3f)",
+                   pre_target.x(), pre_target.y(), pre_target.z());
+      return false;
+    }
+    if (!kin_engine_->solveIK(ee_target, pitch, tool_roll, q_place))
+    {
+      RCLCPP_ERROR(this->get_logger(),
+                   "[place_frame] IK failed for place (%.3f, %.3f, %.3f)",
+                   ee_target.x(), ee_target.y(), ee_target.z());
+      return false;
+    }
+    q_pre[0]   += tool_yaw_offset_;
+    q_place[0] += tool_yaw_offset_;
+
+    if (!send_move_goal(std::vector<Eigen::VectorXd>{q_pre, q_place}))
+    {
+      return false;
+    }
+    if (!wait_for_action_completion())
+    {
+      return false;
+    }
+
+    // 垂直后退
+    Eigen::VectorXd q_snap;
+    {
+      std::lock_guard<std::mutex> lock(mtx_);
+      q_snap = q_current_;
+    }
+    if (q_snap.size() == 5)
+    {
+      auto fk = kin_engine_->forwardKinematics(q_snap);
+      Eigen::Vector3d retreat_pos = fk.translation();
+      retreat_pos.z() += place_retreat_offset_;
+
+      Eigen::VectorXd q_retreat(5);
+      if (kin_engine_->solveIK(retreat_pos, pitch, tool_roll, q_retreat))
+      {
+        q_retreat[0] += tool_yaw_offset_;
+        RCLCPP_INFO(this->get_logger(),
+                    "[place_frame] retreating %.2fm upward", place_retreat_offset_);
+        if (send_move_goal(std::vector<Eigen::VectorXd>{q_retreat}))
+        {
+          wait_for_action_completion();
+        }
+      }
+      else
+      {
+        RCLCPP_WARN(this->get_logger(), "[place_frame] retreat IK failed, skipping.");
+      }
+    }
+    return true;
+  }
+
+  bool do_stack_move_with_orientation(const geometry_msgs::msg::Pose &box_top_world)
+  {
+    const double tool_roll =
+        normalize_angle(stack_roll_sign_ * (
+            std::atan2(
+                2.0 * (box_top_world.orientation.w * box_top_world.orientation.z +
+                       box_top_world.orientation.x * box_top_world.orientation.y),
+                1.0 - 2.0 * (box_top_world.orientation.y * box_top_world.orientation.y +
+                             box_top_world.orientation.z * box_top_world.orientation.z))
+            - std::atan2(box_top_world.position.y, box_top_world.position.x)));
+
+    const double pitch = grasp_pitch_ + tool_pitch_offset_;
+
+    const Eigen::Vector3d ee_target(
+        box_top_world.position.x,
+        box_top_world.position.y,
+        box_top_world.position.z + stack_contact_offset_);
+
+    const Eigen::Vector3d pre_target(
+        ee_target.x(), ee_target.y(), ee_target.z() + stack_hover_height_);
+
+    RCLCPP_INFO(this->get_logger(),
+                "[stack] ee_z=%.3f pre_z=%.3f pitch=%.2f roll=%.2f",
+                ee_target.z(), pre_target.z(), pitch, tool_roll);
+
+    Eigen::VectorXd q_pre(5), q_stack(5);
+    if (!kin_engine_->solveIK(pre_target, pitch, tool_roll, q_pre))
+    {
+      RCLCPP_ERROR(this->get_logger(),
+                   "[stack] IK failed for pre-stack (%.3f, %.3f, %.3f)",
+                   pre_target.x(), pre_target.y(), pre_target.z());
+      return false;
+    }
+    if (!kin_engine_->solveIK(ee_target, pitch, tool_roll, q_stack))
+    {
+      RCLCPP_ERROR(this->get_logger(),
+                   "[stack] IK failed for stack (%.3f, %.3f, %.3f)",
+                   ee_target.x(), ee_target.y(), ee_target.z());
+      return false;
+    }
+    q_pre[0]   += tool_yaw_offset_;
+    q_stack[0] += tool_yaw_offset_;
+
+    if (!send_move_goal(std::vector<Eigen::VectorXd>{q_pre, q_stack}))
+    {
+      return false;
+    }
+    if (!wait_for_action_completion())
+    {
+      return false;
+    }
+
+    // 垂直后退
+    Eigen::VectorXd q_snap;
+    {
+      std::lock_guard<std::mutex> lock(mtx_);
+      q_snap = q_current_;
+    }
+    if (q_snap.size() == 5)
+    {
+      auto fk = kin_engine_->forwardKinematics(q_snap);
+      Eigen::Vector3d retreat_pos = fk.translation();
+      retreat_pos.z() += place_retreat_offset_;
+
+      Eigen::VectorXd q_retreat(5);
+      if (kin_engine_->solveIK(retreat_pos, pitch, tool_roll, q_retreat))
+      {
+        q_retreat[0] += tool_yaw_offset_;
+        RCLCPP_INFO(this->get_logger(),
+                    "[stack] retreating %.2fm upward", place_retreat_offset_);
+        if (send_move_goal(std::vector<Eigen::VectorXd>{q_retreat}))
+        {
+          wait_for_action_completion();
+        }
+      }
+      else
+      {
+        RCLCPP_WARN(this->get_logger(), "[stack] retreat IK failed, skipping.");
+      }
+    }
+    return true;
   }
 
   /**
@@ -1311,8 +1633,8 @@ private:
           << "1:  Reset (suction OFF -> moving -> reset -> idle)\n"
           << "2:  Joint preset A (debug)\n"
           << "3:  Joint preset B (debug)\n"
-          << "4:  Auto place   (manual target -> look_out -> pre-place -> place -> suction OFF -> retreat)\n"
-          << "5:  Manual place (input world x y z -> place pipeline)\n"
+          << "4:  Auto place   (dog camera perception -> pre-place -> place -> suction OFF -> retreat)\n"
+          << "5:  Manual place (input frame x y z yaw -> pre-place -> place -> suction OFF -> retreat)\n"
           << "6:  Auto grasp   (perception/mock -> look_out -> grasp -> suction)\n"
           << "7:  Manual grasp (input world x y z -> look_out -> grasp -> suction)\n"
           << "8:  Release (suction OFF -> moving)\n"
@@ -1321,6 +1643,8 @@ private:
           << "11: Estimate payload\n"
           << "12: 3-Phase Grasp (scan -> overhead align -> joint4 -90 -> grasp)\n"
           << "13: 3-Phase Place (scan -> overhead align -> joint4 -90 -> place)\n"
+          << "14: Auto Stack   (dog camera -> pre-stack -> stack -> suction OFF -> retreat)\n"
+          << "15: Manual Stack (input box top x y z yaw -> stack -> suction OFF -> retreat)\n"
           << "0:  Exit\n"
           << "cmd: " << std::flush;
 
@@ -1363,32 +1687,59 @@ private:
 
       case 4:
       {
-        RCLCPP_INFO(this->get_logger(), ">>> Auto Place (manual target)");
-        double tx, ty, tz;
-        std::cout << "Enter place target x y z (world frame, meters): ";
-        if (!(std::cin >> tx >> ty >> tz))
+        // Auto Place：调用狗头相机感知服务获取方框位姿，直接放置（无 look_out）
+        RCLCPP_INFO(this->get_logger(), ">>> Auto Place (dog camera perception)");
+        geometry_msgs::msg::Pose frame_pose;
+
+        if (place_frame_use_mock_)
         {
-          std::cin.clear();
-          std::cin.ignore(std::numeric_limits<std::streamsize>::max(), '\n');
-          RCLCPP_WARN(this->get_logger(), "Invalid input.");
+          frame_pose.position.x = place_frame_mock_x_;
+          frame_pose.position.y = place_frame_mock_y_;
+          frame_pose.position.z = place_frame_mock_z_;
+          frame_pose.orientation.x = 0.0;
+          frame_pose.orientation.y = 0.0;
+          frame_pose.orientation.z = std::sin(place_frame_mock_yaw_ / 2.0);
+          frame_pose.orientation.w = std::cos(place_frame_mock_yaw_ / 2.0);
+          RCLCPP_INFO(this->get_logger(),
+                      "[case4] mock frame pos=(%.3f,%.3f,%.3f) yaw=%.3f rad",
+                      place_frame_mock_x_, place_frame_mock_y_,
+                      place_frame_mock_z_, place_frame_mock_yaw_);
+        }
+        else
+        {
+          if (!call_place_service_sync(place_frame_name_, &frame_pose))
+          {
+            RCLCPP_WARN(this->get_logger(), "[case4] Perception failed, abort.");
+            break;
+          }
+        }
+
+        RCLCPP_INFO(this->get_logger(),
+                    "[case4] frame world=(%.3f,%.3f,%.3f)",
+                    frame_pose.position.x, frame_pose.position.y, frame_pose.position.z);
+
+        request_mode_switch("moving");
+        if (!do_place_move_with_orientation(frame_pose))
+        {
+          RCLCPP_ERROR(this->get_logger(), "[case4] Place move failed.");
           break;
         }
-        std::cin.ignore(std::numeric_limits<std::streamsize>::max(), '\n');
-        geometry_msgs::msg::Pose place_target;
-        place_target.position.x = tx;
-        place_target.position.y = ty;
-        place_target.position.z = tz;
-        place_target.orientation.w = 1.0;
-        RCLCPP_INFO(this->get_logger(), ">>> Place target=(%.3f,%.3f,%.3f)", tx, ty, tz);
-        do_full_place(place_target);
+        RCLCPP_INFO(this->get_logger(), "[case4] suction OFF");
+        rclcpp::sleep_for(200ms);
+        do_suction_off();
+        rclcpp::sleep_for(300ms);
+        request_mode_switch("moving");
+        RCLCPP_INFO(this->get_logger(), "[case4] Auto Place done.");
         break;
       }
 
       case 5:
       {
-        double tx, ty, tz;
-        std::cout << "Enter place target x y z (world frame, meters): ";
-        if (!(std::cin >> tx >> ty >> tz))
+        // Manual Place：用户手动输入方框中心 x y z 和朝向 yaw，用于调试和验证
+        RCLCPP_INFO(this->get_logger(), ">>> Manual Place (input frame pose)");
+        double tx, ty, tz, tyaw;
+        std::cout << "Enter frame center x y z (world, m) and yaw (rad): ";
+        if (!(std::cin >> tx >> ty >> tz >> tyaw))
         {
           std::cin.clear();
           std::cin.ignore(std::numeric_limits<std::streamsize>::max(), '\n');
@@ -1396,13 +1747,32 @@ private:
           break;
         }
         std::cin.ignore(std::numeric_limits<std::streamsize>::max(), '\n');
-        geometry_msgs::msg::Pose place_target;
-        place_target.position.x = tx;
-        place_target.position.y = ty;
-        place_target.position.z = tz;
-        place_target.orientation.w = 1.0;
-        RCLCPP_INFO(this->get_logger(), ">>> Manual Place target=(%.3f,%.3f,%.3f)", tx, ty, tz);
-        do_full_place(place_target);
+
+        geometry_msgs::msg::Pose frame_pose;
+        frame_pose.position.x = tx;
+        frame_pose.position.y = ty;
+        frame_pose.position.z = tz;
+        frame_pose.orientation.x = 0.0;
+        frame_pose.orientation.y = 0.0;
+        frame_pose.orientation.z = std::sin(tyaw / 2.0);
+        frame_pose.orientation.w = std::cos(tyaw / 2.0);
+
+        RCLCPP_INFO(this->get_logger(),
+                    "[case5] frame pos=(%.3f,%.3f,%.3f) yaw=%.3f",
+                    tx, ty, tz, tyaw);
+
+        request_mode_switch("moving");
+        if (!do_place_move_with_orientation(frame_pose))
+        {
+          RCLCPP_ERROR(this->get_logger(), "[case5] Place move failed.");
+          break;
+        }
+        RCLCPP_INFO(this->get_logger(), "[case5] suction OFF");
+        rclcpp::sleep_for(200ms);
+        do_suction_off();
+        rclcpp::sleep_for(300ms);
+        request_mode_switch("moving");
+        RCLCPP_INFO(this->get_logger(), "[case5] Manual Place done.");
         break;
       }
 
@@ -1496,6 +1866,98 @@ private:
         do_3phase_place();
         break;
 
+      case 14:
+      {
+        // Auto Stack：调用 get_stack_pos 感知服务获取目标箱子上表面位姿，叠放
+        RCLCPP_INFO(this->get_logger(), ">>> Auto Stack (dog camera perception)");
+        geometry_msgs::msg::Pose box_top_pose;
+
+        if (stack_use_mock_)
+        {
+          box_top_pose.position.x = stack_mock_x_;
+          box_top_pose.position.y = stack_mock_y_;
+          box_top_pose.position.z = stack_mock_z_;
+          box_top_pose.orientation.x = 0.0;
+          box_top_pose.orientation.y = 0.0;
+          box_top_pose.orientation.z = std::sin(stack_mock_yaw_ / 2.0);
+          box_top_pose.orientation.w = std::cos(stack_mock_yaw_ / 2.0);
+          RCLCPP_INFO(this->get_logger(),
+                      "[case14] mock box_top pos=(%.3f,%.3f,%.3f) yaw=%.3f rad",
+                      stack_mock_x_, stack_mock_y_, stack_mock_z_, stack_mock_yaw_);
+        }
+        else
+        {
+          if (!call_stack_service_sync(stack_service_name_, &box_top_pose))
+          {
+            RCLCPP_WARN(this->get_logger(), "[case14] Stack perception failed, abort.");
+            break;
+          }
+        }
+
+        RCLCPP_INFO(this->get_logger(),
+                    "[case14] box_top world=(%.3f,%.3f,%.3f)",
+                    box_top_pose.position.x,
+                    box_top_pose.position.y,
+                    box_top_pose.position.z);
+
+        request_mode_switch("moving");
+        if (!do_stack_move_with_orientation(box_top_pose))
+        {
+          RCLCPP_ERROR(this->get_logger(), "[case14] Stack move failed.");
+          break;
+        }
+        RCLCPP_INFO(this->get_logger(), "[case14] suction OFF");
+        rclcpp::sleep_for(200ms);
+        do_suction_off();
+        rclcpp::sleep_for(300ms);
+        request_mode_switch("moving");
+        RCLCPP_INFO(this->get_logger(), "[case14] Auto Stack done.");
+        break;
+      }
+
+      case 15:
+      {
+        // Manual Stack：手动输入目标箱子上表面 x y z 和 yaw，用于调试
+        RCLCPP_INFO(this->get_logger(), ">>> Manual Stack (input box top pose)");
+        double tx, ty, tz, tyaw;
+        std::cout << "Enter box top surface center x y z (world, m) and yaw (rad): ";
+        if (!(std::cin >> tx >> ty >> tz >> tyaw))
+        {
+          std::cin.clear();
+          std::cin.ignore(std::numeric_limits<std::streamsize>::max(), '\n');
+          RCLCPP_WARN(this->get_logger(), "Invalid input.");
+          break;
+        }
+        std::cin.ignore(std::numeric_limits<std::streamsize>::max(), '\n');
+
+        geometry_msgs::msg::Pose box_top_pose;
+        box_top_pose.position.x = tx;
+        box_top_pose.position.y = ty;
+        box_top_pose.position.z = tz;
+        box_top_pose.orientation.x = 0.0;
+        box_top_pose.orientation.y = 0.0;
+        box_top_pose.orientation.z = std::sin(tyaw / 2.0);
+        box_top_pose.orientation.w = std::cos(tyaw / 2.0);
+
+        RCLCPP_INFO(this->get_logger(),
+                    "[case15] box_top pos=(%.3f,%.3f,%.3f) yaw=%.3f",
+                    tx, ty, tz, tyaw);
+
+        request_mode_switch("moving");
+        if (!do_stack_move_with_orientation(box_top_pose))
+        {
+          RCLCPP_ERROR(this->get_logger(), "[case15] Stack move failed.");
+          break;
+        }
+        RCLCPP_INFO(this->get_logger(), "[case15] suction OFF");
+        rclcpp::sleep_for(200ms);
+        do_suction_off();
+        rclcpp::sleep_for(300ms);
+        request_mode_switch("moving");
+        RCLCPP_INFO(this->get_logger(), "[case15] Manual Stack done.");
+        break;
+      }
+
       case 0:
         RCLCPP_INFO(this->get_logger(), "Exit.");
         is_running_.store(false);
@@ -1557,6 +2019,28 @@ private:
   double step6_mock_z_{0.12};
   std::string step6_pick_object_name_{"box"};
 
+  // Place-frame parameters (狗头相机放置，task_place_frame)
+  double place_frame_hover_height_{0.25};
+  double place_frame_contact_offset_{0.0};
+  std::string place_frame_name_{"target_frame"};
+  double place_frame_roll_sign_{1.0};
+  bool   place_frame_use_mock_{false};
+  double place_frame_mock_x_{0.35};
+  double place_frame_mock_y_{0.0};
+  double place_frame_mock_z_{0.0};
+  double place_frame_mock_yaw_{0.0};
+
+  // Stack parameters (箱子叠放，task_stack)
+  double stack_hover_height_{0.05};
+  double stack_contact_offset_{0.25};
+  std::string stack_service_name_{"get_stack_pos"};
+  double stack_roll_sign_{1.0};
+  bool   stack_use_mock_{false};
+  double stack_mock_x_{0.35};
+  double stack_mock_y_{0.0};
+  double stack_mock_z_{0.1};
+  double stack_mock_yaw_{0.0};
+
   // Phase-2 alignment parameters
   double align_threshold_{0.005}; // 5 mm
   int align_max_iters_{5};
@@ -1581,6 +2065,8 @@ private:
   rclcpp::Subscription<robot_msgs::msg::RobotState>::SharedPtr state_sub_;
   rclcpp::Subscription<std_msgs::msg::Bool>::SharedPtr driver_ready_sub_;
   rclcpp::Client<robot_msgs::srv::GetPickPos>::SharedPtr pick_client_;
+  rclcpp::Client<robot_msgs::srv::GetPlacePos>::SharedPtr place_client_;
+  rclcpp::Client<robot_msgs::srv::GetPlacePos>::SharedPtr stack_client_;
   rclcpp::Client<robot_msgs::srv::SetSuction>::SharedPtr suction_client_;
   rclcpp::Client<robot_msgs::srv::SetControllerMode>::SharedPtr mode_client_;
   rclcpp::Client<robot_msgs::srv::GetPayloadEstimate>::SharedPtr payload_client_;
