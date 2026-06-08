@@ -234,7 +234,7 @@ private:
 
   void load_presets()
   {
-    const std::vector<std::string> preset_names = {"reset", "look_out", "load"};
+    const std::vector<std::string> preset_names = {"reset", "look_out", "load", "carry"};
     for (const auto &name : preset_names)
     {
       const auto angles_deg =
@@ -682,6 +682,13 @@ private:
       std::lock_guard<std::mutex> lock(mtx_);
       q_snap = q_current_;
     }
+
+    // 到达放置点后先松开吸盘，再后退
+    RCLCPP_INFO(this->get_logger(), "[place_frame] suction OFF before retreat");
+    rclcpp::sleep_for(200ms);
+    do_suction_off();
+    rclcpp::sleep_for(300ms);
+
     if (q_snap.size() == 5)
     {
       auto fk = kin_engine_->forwardKinematics(q_snap);
@@ -765,6 +772,13 @@ private:
       std::lock_guard<std::mutex> lock(mtx_);
       q_snap = q_current_;
     }
+
+    // 到达叠放点后先松开吸盘，再后退
+    RCLCPP_INFO(this->get_logger(), "[stack] suction OFF before retreat");
+    rclcpp::sleep_for(200ms);
+    do_suction_off();
+    rclcpp::sleep_for(300ms);
+
     if (q_snap.size() == 5)
     {
       auto fk = kin_engine_->forwardKinematics(q_snap);
@@ -1638,7 +1652,7 @@ private:
           << "6:  Auto grasp   (perception/mock -> look_out -> grasp -> suction)\n"
           << "7:  Manual grasp (input world x y z -> look_out -> grasp -> suction)\n"
           << "8:  Release (suction OFF -> moving)\n"
-          << "9:  Reset with suction (keep suction ON)\n"
+          << "9:  Carry reset (suction ON, moving -> carry preset -> loaded)\n"
           << "10: Move to load preset\n"
           << "11: Estimate payload\n"
           << "12: 3-Phase Grasp (scan -> overhead align -> joint4 -90 -> grasp)\n"
@@ -1724,10 +1738,6 @@ private:
           RCLCPP_ERROR(this->get_logger(), "[case4] Place move failed.");
           break;
         }
-        RCLCPP_INFO(this->get_logger(), "[case4] suction OFF");
-        rclcpp::sleep_for(200ms);
-        do_suction_off();
-        rclcpp::sleep_for(300ms);
         request_mode_switch("moving");
         RCLCPP_INFO(this->get_logger(), "[case4] Auto Place done.");
         break;
@@ -1767,10 +1777,6 @@ private:
           RCLCPP_ERROR(this->get_logger(), "[case5] Place move failed.");
           break;
         }
-        RCLCPP_INFO(this->get_logger(), "[case5] suction OFF");
-        rclcpp::sleep_for(200ms);
-        do_suction_off();
-        rclcpp::sleep_for(300ms);
         request_mode_switch("moving");
         RCLCPP_INFO(this->get_logger(), "[case5] Manual Place done.");
         break;
@@ -1839,8 +1845,24 @@ private:
         break;
 
       case 9:
-        do_reset_suction();
+      {
+        RCLCPP_INFO(this->get_logger(), "[carry] moving -> carry preset -> loaded");
+        if (!request_mode_switch("moving"))
+        {
+          break;
+        }
+        if (!presets_.count("carry"))
+        {
+          RCLCPP_ERROR(this->get_logger(), "Preset 'carry' not found!");
+          break;
+        }
+        if (send_move_goal({presets_["carry"]}))
+        {
+          wait_for_action_completion();
+        }
+        request_mode_switch("loaded");
         break;
+      }
 
       case 10:
         RCLCPP_INFO(this->get_logger(), ">>> Move to load preset");
@@ -1906,10 +1928,6 @@ private:
           RCLCPP_ERROR(this->get_logger(), "[case14] Stack move failed.");
           break;
         }
-        RCLCPP_INFO(this->get_logger(), "[case14] suction OFF");
-        rclcpp::sleep_for(200ms);
-        do_suction_off();
-        rclcpp::sleep_for(300ms);
         request_mode_switch("moving");
         RCLCPP_INFO(this->get_logger(), "[case14] Auto Stack done.");
         break;
@@ -1949,10 +1967,6 @@ private:
           RCLCPP_ERROR(this->get_logger(), "[case15] Stack move failed.");
           break;
         }
-        RCLCPP_INFO(this->get_logger(), "[case15] suction OFF");
-        rclcpp::sleep_for(200ms);
-        do_suction_off();
-        rclcpp::sleep_for(300ms);
         request_mode_switch("moving");
         RCLCPP_INFO(this->get_logger(), "[case15] Manual Stack done.");
         break;
