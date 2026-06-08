@@ -47,6 +47,7 @@ elseif($ENV{ROS_DISTRO} MATCHES "foxy|humble")
     "msg/RobotState.msg"
     "msg/IMU.msg"
     "srv/GetPickPos.srv"
+    "srv/GetPlacePos.srv"
     "srv/SetSuction.srv"
     "srv/SetControllerMode.srv"
     "srv/GetPayloadEstimate.srv"

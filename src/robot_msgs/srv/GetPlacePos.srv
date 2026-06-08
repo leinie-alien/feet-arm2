@@ -1,0 +1,4 @@
+string frame_name
+---
+bool success
+geometry_msgs/PoseStamped place_pose

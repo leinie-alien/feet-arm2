@@ -639,7 +639,15 @@ std::shared_ptr<ControlNode::TrajSegment> ControlNode::plan_trapezoid(const Eige
 {
     auto seg = std::make_shared<TrajSegment>();
     seg->q_start = start;
-    seg->q_end = end;
+
+    // joint_0 是无限旋转关节，取最短路径等效角，避免绕圈
+    Eigen::VectorXd end_adjusted = end;
+    {
+        double diff = end_adjusted[0] - start[0];
+        diff = diff - std::round(diff / (2.0 * M_PI)) * (2.0 * M_PI);
+        end_adjusted[0] = start[0] + diff;
+    }
+    seg->q_end = end_adjusted;
     seg->start_time = this->get_clock()->now();
 
     // 1. 计算各关节的位移绝对值
