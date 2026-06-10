@@ -1,0 +1,25 @@
+%YAML:1.0
+---
+arm_samples_used: 20
+dog_samples_used: 7
+world_T_dog_camera_rotation: !!opencv-matrix
+   rows: 3
+   cols: 3
+   dt: d
+   data: [ -1.6679298791638111e-02, 5.3937816549677065e-01,
+       -8.4189844730653707e-01, 9.9911206915800999e-01,
+       4.1572622464465039e-02, 6.8403453295097314e-03,
+       3.8689459218489333e-02, -8.4103680754576104e-01,
+       -5.3959263717976680e-01 ]
+world_T_dog_camera_translation: !!opencv-matrix
+   rows: 3
+   cols: 1
+   dt: d
+   data: [ -1.3169578678988142e-01, -2.1689279273905709e-02,
+       4.7940424141496574e-03 ]
+world_T_dog_camera_quaternion_xyzw: !!opencv-matrix
+   rows: 4
+   cols: 1
+   dt: d
+   data: [ 6.0855170608660358e-01, 6.3202938191904301e-01,
+       -3.2996743746444368e-01, -3.4831763036525309e-01 ]

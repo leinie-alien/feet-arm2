@@ -1,0 +1,7 @@
+# Request: 即使不需要输入参数，也建议保留空 Request 结构
+---
+# Response: 估计出的质量 (kg)
+float32 mass
+# 状态反馈
+bool success
+string message

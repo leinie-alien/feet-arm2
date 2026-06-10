@@ -1,0 +1,17 @@
+%YAML:1.0
+---
+camera_matrix: !!opencv-matrix
+   rows: 3
+   cols: 3
+   dt: d
+   data: [ 9.0801013183593750e+02, 0., 6.4692572021484375e+02, 0.,
+       9.0727520751953125e+02, 3.7344546508789062e+02, 0., 0., 1. ]
+dist_coeffs: !!opencv-matrix
+   rows: 5
+   cols: 1
+   dt: d
+   data: [ 0., 0., 0., 0., 0. ]
+image_width: 1280
+image_height: 720
+fps: 30
+model: "distortion.inverse_brown_conrady"

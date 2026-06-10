@@ -1,0 +1,27 @@
+%YAML:1.0
+---
+solver_method: park
+sample_count: 23
+filter_min_corners: 16
+filter_max_reproj_px: 0.59999999999999998
+filter_min_blur: 90.
+link4_T_camera_rotation: !!opencv-matrix
+   rows: 3
+   cols: 3
+   dt: d
+   data: [ 0.028151516735001769, 0.047705558197943698,
+       0.99846465727262557, 0.030362999459403572, 0.99835882664775311,
+       -0.048556580587348547, -0.9991424224650598, 0.03168332324000217,
+       0.026656831378136348 ]
+link4_T_camera_translation: !!opencv-matrix
+   rows: 3
+   cols: 1
+   dt: d
+   data: [ -0.071470295522142374, -0.10303500905208052,
+       0.027404415414491377 ]
+link4_T_camera_quaternion_xyzw: !!opencv-matrix
+   rows: 4
+   cols: 1
+   dt: d
+   data: [ 0.027999369229971153, 0.69705639630782912,
+       -0.0060516112601238167, 0.71644385243382669 ]

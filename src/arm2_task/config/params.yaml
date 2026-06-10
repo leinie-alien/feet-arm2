@@ -1,0 +1,207 @@
+---
+/**:
+  ros__parameters:
+    #相机安装位置
+    camera_extrinsics:
+      child_frame: camera_link
+      parent_frame: Link_4
+      pos: [-0.028525, -0.147706, -0.002527]
+      quat: [0.04933066, 0.74662107, 0.03786186, 0.66233673]
+    # 动力学与摩擦力补偿参数
+    # tau_f = fc * tanh(alpha * dq) + fv * dq
+    dynamics:
+      friction:
+        GearRatio: [10.0, 30.0, 10.0, 7.0, 7.0]
+        alpha: 80.0
+        fc: [0.25, 0.7, 0.25, 0.07, 0.05]
+        fv: [0.00026634, 0.00013977, 0.00028228, 0.00012035, 0.00013322]
+      joints: ["Yaw_joint", "Pitch_1", "Pitch_2", "pitch_3", "roll"]
+    # 关节空间控制器 PD 参数
+   # 四套 PD 参数组
+    gains:
+      #2. 纯重力补偿模式 (GRAVITY_COMP): 极低 PD,主要靠动力学模型抵消重力,实现“透明”手感或零力示教
+      gravity_comp:
+        kd: [1.0, 2.5, 2.0, 0.2, 0.02]
+        kp: [2.0, 10.5, 8.0, 1.2, 0.1]
+      # 1. 待机模式 (IDLE): 低增益，防止电机高频振动发热，允许手动推过
+      idle:
+        kd: [0.5, 0.5, 0.5, 0.2, 0.1]
+        kp: [1.0, 2.0, 1.0, 0.5, 0.0]
+      #4. 负载模式 (LOADED): 高增益，应对抓取 500g 负载后的惯量增加，提高刚性减少静差
+      loaded:
+        kd: [1.0, 8.0, 5.0, 3.2, 0.1]
+        kp: [5.0, 20.0, 15.0, 8.5, 0.6]
+      #3. 运动模式 (MOVING): 标准增益，兼顾响应速度和稳定性，用于瞭望、俯瞰等空载移动
+      moving:
+        kd: [1.0, 4.0, 2.5, 0.5, 0.1]
+        kp: [3.5, 15.0, 10.0, 3.0, 0.5]
+      tracking:
+        kd: [1.0, 4.0, 1.5, 0.1, 0.1]
+        kp: [3.5, 15.0, 8.0, 1.2, 0.5]
+      teach_pendant:
+        kd: [1.0, 4.0, 1.5, 0.1, 0.1]
+        kp: [3.5, 15.0, 8.0, 1.2, 0.5]
+      teach_drag:
+        kd: [0.15, 0.80, 0.35, 0.12, 0.05]
+        kp: [0.00, 0.25, 0.15, 0.08, 0.00]
+# 新增：负载识别与判定的配置
+    payload_management:
+      # 负载的物理属性 (用于 setPayloadState)
+      box_dim: 0.25
+      # 默认值：按 URDF 的 Link_5 局部坐标系，负载沿末端 +Z 方向延伸。
+      com_offset: [0.0, 0.0, 0.2219]
+      estimation_joint_index: 1.0
+      expected_mass: 0.5
+      identification_time: 0.2
+      load_threshold: 0.1
+      min_lever_arm: 0.05
+    # 预设动作点 (角度制)
+    presets:
+      load: [0.0, 60.0, -60.0, -80.0, 0.0]
+      look_at: [0.0, 100.0, -80.0, -90.0, 0.0]
+      reset: [0.0, 175.0, -170.0, 10.0, 0.0]
+    # 机器人几何参数 (用于解析逆解)
+    robot_geometry:
+      l1: 0.0845
+      l2: 0.350005
+      l3: 0.243441
+      l4: 0.046
+    # 轨迹规划参数
+    trajectory_planner:
+      state_topic: /arm2/_lowState/joint
+      target_topic: /joint_target_state
+      ready_topic: /robot_driver/ready
+      action_name: move_joint
+      publish_rate_hz: 100.0
+      target_qos_depth: 10
+      min_segment_duration: 0.3
+      log_targets: false
+      dist_threshold: 0.05
+      max_acceleration: 1.2
+      max_velocity: 0.8
+    task:
+      recognition_debug_mode: false
+      require_payload_service: false
+      require_suction_service: false
+    teach_pendant:
+      topic: /joint_states
+      target_topic: /joint_target_state
+      mode_service: set_controller_mode
+      mode_name: teach_pendant
+      request_mode_on_startup: true
+      republish_hz: 50.0
+      max_abs_acceleration: 30.0
+      teacher_qos_depth: 10
+      target_qos_depth: 10
+      log_input: false
+      joint_names: [joint1, joint2, joint3, joint4, joint5]
+      angle_window_lower: [-3.14159265, -0.5, -3.0, -2.0, -3.14159265]
+      angle_window_upper: [3.14159265, 3.5, 0.15, 1.57, 3.14159265]
+    follow_target:
+      state_topic: /arm2/_lowState/joint
+      target_topic: /joint_target_state
+      ready_topic: /robot_driver/ready
+      pick_service: get_pick_pos
+      object_name: box
+      mode_service: set_controller_mode
+      mode_name: tracking
+      request_mode_on_startup: true
+      acquisition_hz: 10.0
+      publish_hz: 50.0
+      target_qos_depth: 10
+      pick_wait_service_sec: 1.0
+      pick_response_timeout_sec: 0.5
+      transform_timeout_sec: 0.5
+      target_stale_timeout_sec: 0.35
+      radial_offset: -0.08
+      height_offset: 0.20
+      follow_tool_pitch: -1.57
+      follow_roll: 0.0
+      camera_pitch_blend: 1.0
+      camera_pitch_lower: -2.0
+      camera_pitch_upper: 1.57
+      position_filter_alpha: 0.25
+      max_abs_velocity: 1.5
+      max_abs_acceleration: 8.0
+      log_target: false
+      angle_window_lower: [-3.14159265, -0.5, -3.0, -2.0, -3.14159265]
+      angle_window_upper: [3.14159265, 3.5, 0.15, 1.57, 3.14159265]
+    teach_drag_record:
+      output_file: recordings/teach_drag_trajectory.csv
+      state_topic: /arm2/_lowState/joint
+      ready_topic: /robot_driver/ready
+      autosave_period_sec: 1.0
+      min_sample_period_sec: 0.05
+      min_joint_delta_norm: 0.01
+      require_ready: true
+      overwrite_output: true
+      joint_names: [joint1, joint2, joint3, joint4, joint5]
+    teach_drag_playback:
+      input_file: recordings/teach_drag_trajectory.csv
+      target_topic: /joint_target_state
+      ready_topic: /robot_driver/ready
+      mode_service: set_controller_mode
+      mode_name: moving
+      request_mode_on_startup: true
+      wait_for_ready: true
+      publish_rate_hz: 100.0
+      target_qos_depth: 10
+      hold_last_sample: true
+      loop: false
+      playback_speed: 1.0
+      log_progress: false
+    handeye_charuco_capture:
+      output_dir: recordings/handeye_charuco_capture
+      state_topic: /arm2/_lowState/joint
+      ready_topic: /robot_driver/ready
+      require_ready: false
+      camera_source: "/dev/video8"
+      capture_width: 1280
+      capture_height: 720
+      preview_rate_hz: 8.0
+      overwrite_output: true
+      board_squares_x: 7
+      board_squares_y: 5
+      square_length_m: 0.03
+      marker_length_m: 0.022
+      dictionary_name: DICT_4X4_50
+      min_charuco_corners: 8
+      intrinsics_file: ""
+    inverse_dynamics:
+      state_topic: /arm2/_lowState/joint
+      target_topic: /joint_target_state
+      command_topic: /arm2/_lowCmd/command
+      ready_topic: /robot_driver/ready
+      mode_service: set_controller_mode
+      payload_service: set_payload_state
+      control_rate_hz: 100.0
+      target_timeout_sec: 0.25
+      target_qos_depth: 10
+      hold_position_on_startup: true
+      default_mode: moving
+      log_input: false
+      angle_window_lower: [-3.2, -0.5, -3.0, -2.0, -3.14159265]
+      angle_window_upper: [3.2, 3.5, 0.15, 1.57, 3.14159265]
+      command_velocity_limits: [2.0, 1.5, 2.0, 2.0, 3.0]
+      command_torque_limits: [8.0, 20.0, 8.0, 8.0, 4.0]
+    gravity_comp_test:
+      enable_payload_service: false
+      payload_service: set_payload_state
+      gains_mode: gravity_comp
+    inverse_dynamics_test:
+      target_topic: /joint_target_state
+      state_topic: /arm2/_lowState/joint
+      ready_topic: /robot_driver/ready
+      target_qos_depth: 10
+      publish_rate_hz: 150.0
+      motion_frequency_hz: 0.12
+      safety_margin_rad: 0.08
+      motion_range_ratio: 0.12
+      max_abs_offset_rad: 0.35
+      phase_offsets: [0.0, 0.5, 1.0, 1.4, 1.8]
+      active_joint_order: [1, 2, 3, 4, 5]
+      lower_limits: [-3.1415, 0.0, -3.0, -2.0, -3.1415]
+      upper_limits: [3.1415, 3.14159265, 0.15, 1.57, 3.1415]
+    control:
+      command_topic: /arm2/_lowCmd/command
+    urdf_path: urdf/arm2.urdf

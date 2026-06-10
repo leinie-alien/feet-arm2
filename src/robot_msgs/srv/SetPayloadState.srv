@@ -1,0 +1,6 @@
+bool has_load
+float64 mass
+float64[3] com
+---
+bool success
+string message

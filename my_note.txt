@@ -1,0 +1,41 @@
+首先可以让claude帮忙找出来两个相机的彩色流的端口是什么，比如我这里是8和14
+
+python3 -c "
+  import cv2
+  for i in [8, 14]:
+      cap = cv2.VideoCapture(i, cv2.CAP_V4L2)
+      cap.set(cv2.CAP_PROP_FRAME_WIDTH, 1280)
+      cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 720)
+      ret, frame = cap.read()
+      if ret:
+          cv2.imwrite(f'/tmp/cam_test_video{i}.png', frame)
+          print(f'video{i}: saved /tmp/cam_test_video{i}.png')
+      cap.release()
+  " 2>/dev/null
+用来用两个相机拍两张照片看到底每个端口对应哪个相机，可以自己用
+eog /tmp/cam_test_video8.png /tmp/cam_test_video14.png
+看看这两个照片，自己能对应
+
+
+重新采集臂上相机数据：
+bash run_handeye_charuco_capture_real.sh --intrinsics-file recordings/handeye_charuco_capture/device_intrinsics.yml --camera-source 14
+这里14是因为我电脑机械臂上的相机端口是14
+ xterm 里：拖动机械臂 → v 确认 → c 采集，重复 15-20 次 → s → q
+
+
+求解臂上相机外参：
+python3 tools/solve_handeye_charuco.py --dataset recordings/handeye_charuco_capture/dataset.yml --output recordings/handeye_charuco_capture/handeye_result.yml
+
+
+
+狗头相机拍板子（板子不动，和步骤1同一位置）：
+mkdir -p recordings/dog_camera（建立文件夹，可以不用因为里面有这个文件夹
+python3 tools/capture_dog_camera.py 8 recordings/dog_camera
+这个用来用狗头相机拍照片，这里8是因为我电脑端口上狗头相机是8
+
+
+
+
+然后最后计算狗头相机那个矩阵和四元数的信息（外参
+python3 tools/solve_dog_camera_extrinsics.py --arm-dataset recordings/handeye_charuco_capture/dataset.yml --arm-extrinsics recordings/handeye_charuco_capture/handeye_result.yml --dog-images recordings/dog_camera/*.png --dog-intrinsics recordings/handeye_charuco_capture/device_intrinsics.yml --output recordings/dog_camera/dog_camera_result.yml
+

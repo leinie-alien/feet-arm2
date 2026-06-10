@@ -1,0 +1,12 @@
+# Goal
+geometry_msgs/Pose target_pose
+float32 roll          # 弧度
+float32 pitch         # 弧度
+string mode           # "reset" 或 "move"
+---
+# Result
+bool success
+string message
+---
+# Feedback
+float32 distance_to_target

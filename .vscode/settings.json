@@ -1,0 +1,9 @@
+{
+    "ros.distro": "humble",
+    "python.autoComplete.extraPaths": [
+        "/home/leine/data/robotics/arm_debug/install/robot_msgs/local/lib/python3.10/dist-packages",
+        "/home/leine/data/robotics/arm/install/robot_msgs/local/lib/python3.10/dist-packages",
+        "/opt/ros/humble/lib/python3.10/site-packages",
+        "/opt/ros/humble/local/lib/python3.10/dist-packages"
+    ]
+}

@@ -1,0 +1,27 @@
+{
+  "configurations": [
+    {
+      "browse": {
+        "databaseFilename": "${default}",
+        "limitSymbolsToIncludedHeaders": false
+      },
+      "includePath": [
+        "/home/leine/data/robotics/arm_debug/install/dm_motor_sdk_ros/include/**",
+        "/home/leine/data/robotics/arm_debug/install/robot_msgs/include/**",
+        "/home/leine/data/robotics/arm/install/dm_motor_sdk_ros/include/**",
+        "/home/leine/data/robotics/arm/install/robot_msgs/include/**",
+        "/opt/ros/humble/include/**",
+        "/home/leine/data/robotics/arm_debug/src/arm2_task/include/**",
+        "/home/leine/data/robotics/arm_debug/src/dm_motor_sdk_ros/include/**",
+        "/home/leine/data/robotics/arm_debug/src/ftservo_hls3625_teach/include/**",
+        "/usr/include/**"
+      ],
+      "name": "ROS",
+      "intelliSenseMode": "gcc-x64",
+      "compilerPath": "/usr/bin/gcc",
+      "cStandard": "gnu11",
+      "cppStandard": "c++14"
+    }
+  ],
+  "version": 4
+}

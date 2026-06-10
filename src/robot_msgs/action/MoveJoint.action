@@ -1,0 +1,16 @@
+# Goal: 目标点序列。如果只有一个点，则为 PTP；多个点则自动执行 Blending
+float64[] joint_targets     # 展平后的数组，例如 5 轴 * N 个点
+int32 num_points            # 点的数量
+
+# 规划参数（可选覆盖默认值）
+float64 max_velocity        # 最大速度限制
+float64 max_acceleration    # 最大加速度限制
+float64 blend_radius        # 混合半径
+---
+# Result
+bool success
+string message
+---
+# Feedback
+float64 progress            # 整体完成进度 0.0 ~ 1.0
+float64[] current_errors    # 当前各轴跟踪误差
