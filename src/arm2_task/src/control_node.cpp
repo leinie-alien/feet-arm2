@@ -124,6 +124,7 @@ public:
         dyn_manager_->initParams(fc, fv, ratios, alpha);
         load_all_gains();
         publish_static_camera_tf();
+        publish_static_dog_camera_tf();
         RCLCPP_INFO(this->get_logger(), "Control Node Initialized.");
     }
 
@@ -200,6 +201,7 @@ private:
                                  std::shared_ptr<robot_msgs::srv::GetPayloadEstimate::Response> res);
     void publish_command(const Eigen::VectorXd &q, const Eigen::VectorXd &v, const Eigen::VectorXd &tau);
     void publish_static_camera_tf();
+    void publish_static_dog_camera_tf();
     /**
      * @brief 轨迹插值核心函数
      * @param seg 输入的轨迹段信息
@@ -618,6 +620,56 @@ void ControlNode::publish_static_camera_tf()
     t.transform.rotation.z = quat[2];
     t.transform.rotation.w = quat[3];
     static_tf_broadcaster_->sendTransform(t);
+}
+
+void ControlNode::publish_static_dog_camera_tf()
+{
+    // 广播 dog_camera_link → world 的静态 TF
+    // 外参从 params.yaml dog_camera_extrinsics 读取，标定后填入即可生效
+    // 机械臂固定在机器狗上，arm_base = world，所以 parent_frame 直接用 world
+    auto dog_pos =
+        this->declare_parameter("dog_camera_extrinsics.pos",
+                                std::vector<double>{0.0, 0.0, 0.0});
+    auto dog_quat =
+        this->declare_parameter("dog_camera_extrinsics.quat",
+                                std::vector<double>{0.0, 0.0, 0.0, 1.0});
+    const auto dog_parent =
+        this->declare_parameter("dog_camera_extrinsics.parent_frame",
+                                std::string("world"));
+    const auto dog_child =
+        this->declare_parameter("dog_camera_extrinsics.child_frame",
+                                std::string("dog_camera_link"));
+
+    if (dog_pos.size() != 3U) {
+        RCLCPP_ERROR(this->get_logger(),
+                     "dog_camera_extrinsics.pos size=%zu, expected 3. Falling back to [0,0,0].",
+                     dog_pos.size());
+        dog_pos = {0.0, 0.0, 0.0};
+    }
+    if (dog_quat.size() != 4U) {
+        RCLCPP_ERROR(this->get_logger(),
+                     "dog_camera_extrinsics.quat size=%zu, expected 4. Falling back to identity.",
+                     dog_quat.size());
+        dog_quat = {0.0, 0.0, 0.0, 1.0};
+    }
+
+    geometry_msgs::msg::TransformStamped t;
+    t.header.stamp    = this->get_clock()->now();
+    t.header.frame_id = dog_parent;
+    t.child_frame_id  = dog_child;
+    t.transform.translation.x = dog_pos[0];
+    t.transform.translation.y = dog_pos[1];
+    t.transform.translation.z = dog_pos[2];
+    t.transform.rotation.x = dog_quat[0];
+    t.transform.rotation.y = dog_quat[1];
+    t.transform.rotation.z = dog_quat[2];
+    t.transform.rotation.w = dog_quat[3];
+    static_tf_broadcaster_->sendTransform(t);
+
+    RCLCPP_INFO(this->get_logger(),
+                "[dog_camera_tf] %s → %s  pos=(%.3f,%.3f,%.3f)",
+                dog_parent.c_str(), dog_child.c_str(),
+                dog_pos[0], dog_pos[1], dog_pos[2]);
 }
 void ControlNode::publish_command(const Eigen::VectorXd &q, const Eigen::VectorXd &v, const Eigen::VectorXd &tau)
 {
