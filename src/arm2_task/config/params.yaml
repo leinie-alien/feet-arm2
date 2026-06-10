@@ -20,8 +20,8 @@
     dog_camera_extrinsics:
       parent_frame: world          # arm_base = world，不依赖狗体 TF
       child_frame:  dog_camera_link
-      pos:  [0.0, 0.0, 0.0]       # ← 待标定
-      quat: [0.0, 0.0, 0.0, 1.0]  # ← 待标定（当前为恒等旋转）
+      pos: [0.101263, 0.046662, -0.032759]       # 标定代码标定好的
+      quat:  [-0.57775393, 0.64149970, -0.36065040, 0.35300115] #标定代码标定好的
   
 
 
@@ -120,8 +120,8 @@
       retreat_offset:     0.15    # 放置后垂直后退距离 (m)
 
     task_place_frame:
-      hover_height:       0.25    # 预放置悬停高度 (m)，相对方框 z 坐标
-      contact_offset:     0.0     # 接触面微调 (m)，正值=再往下
+      hover_height:       0.10    # 预放置悬停高度 (m)，相对方框 z 坐标   ///会先到这个点再向下放，为了避免碰到狗
+      contact_offset:     0.45    # 最后接触点的补偿        ///   基本上在箱子边长附近
       frame_name:         "target_frame"
       roll_sign:          1.0
       use_mock_target:    false
@@ -131,8 +131,8 @@
       mock_yaw:           0.0
 
     task_stack:
-      hover_height:       0.05    # 预叠放悬停高度 (m)
-      contact_offset:     0.25    # 箱子边长 0.25m，使吸盘对准上表面
+      hover_height:       0.05    # 预叠放悬停高度 (m)，
+      contact_offset:     0.25   # 箱子边长 0.25m，使吸盘对准上表面   
       stack_service:      "get_stack_pos"
       roll_sign:          1.0
       use_mock_target:    false
