@@ -284,6 +284,39 @@ private:
   }
 
   /**
+   * @brief 从视觉返回的 world 系 orientation 中提取箱子边缘相对于 joint_0 的 roll 偏转量。
+   *        R = [U | V | normal]，U 轴为箱子主边方向。tf2::doTransform 将 Pose 转到 world 系后，
+   *        四元数第一列即为 U 轴在 world 的方向。利用矩形 180° 对称性归一化到 [-π/2, π/2]。
+   *        若 orientation 为 identity（手动输入或视觉未提供朝向），返回 0。
+   */
+  double get_box_edge_roll(const geometry_msgs::msg::Pose &world_pose)
+  {
+    const auto &q = world_pose.orientation;
+
+    if (std::abs(q.x) < 1e-6 && std::abs(q.y) < 1e-6 &&
+        std::abs(q.z) < 1e-6 && std::abs(q.w - 1.0) < 1e-6)
+    {
+      RCLCPP_INFO(this->get_logger(), "[box_edge_roll] identity orientation, roll=0");
+      return 0.0;
+    }
+
+    const double ux = 1.0 - 2.0 * (q.y * q.y + q.z * q.z);
+    const double uy = 2.0 * (q.x * q.y + q.z * q.w);
+    const double edge_yaw = std::atan2(uy, ux);
+
+    const double base_yaw = std::atan2(world_pose.position.y, world_pose.position.x);
+    double roll = normalize_angle(edge_yaw - base_yaw);
+
+    if (roll >  M_PI / 2.0) roll -= M_PI;
+    if (roll < -M_PI / 2.0) roll += M_PI;
+
+    RCLCPP_INFO(this->get_logger(),
+                "[box_edge_roll] edge_yaw=%.3f base_yaw=%.3f roll=%.3f rad",
+                edge_yaw, base_yaw, roll);
+    return roll;
+  }
+
+  /**
    * @brief 发送轨迹目标（多路点）。返回 false 表示 action server 不可用或 goal 被拒绝。
    */
   bool send_move_goal(const std::vector<Eigen::VectorXd> &q_waypoints)
@@ -1112,13 +1145,10 @@ private:
   }
 
   /**
-   * @brief 抓取运动：pre-grasp（+pre_grasp_offset）→ grasp（目标点）双段轨迹。
-   *        tool_roll 由 get_object_yaw() 推算，对齐物体方向。
-   *        返回 false 表示 IK 失败，未发送目标。
+   * @brief 抓取运动（显式 roll）：pre-grasp → grasp 双段轨迹。
    */
-  bool do_grasp_move(const geometry_msgs::msg::Pose &target)
+  bool do_grasp_move(const geometry_msgs::msg::Pose &target, double tool_roll)
   {
-    const double tool_roll = get_object_yaw(target);
     const double pitch = grasp_pitch_ + tool_pitch_offset_;
 
     // 吸盘接触面目标点（XY 偏移沿臂方向旋转，不受 joint_0 朝向影响）
@@ -1168,6 +1198,11 @@ private:
       return false;
     }
     return wait_for_action_completion();
+  }
+
+  bool do_grasp_move(const geometry_msgs::msg::Pose &target)
+  {
+    return do_grasp_move(target, get_object_yaw(target));
   }
 
   /**
@@ -1271,6 +1306,27 @@ private:
     wait_joints_still(0.02, 800);
 
     if (!do_grasp_move(target))
+    {
+      return false;
+    }
+    do_suction_on();
+    return true;
+  }
+
+  /**
+   * @brief 完整抓取序列（带朝向对齐）：look_out → grasp → suction ON。
+   *        用 get_box_edge_roll 从感知 orientation 中提取 joint_4 roll。
+   *        orientation 为 identity 时退化为 roll=0，与 do_full_grasp 等价。
+   */
+  bool do_full_grasp_aligned(const geometry_msgs::msg::Pose &target)
+  {
+    target_pub_->publish(target);
+    request_mode_switch("moving");
+    do_look_out(target);
+    wait_joints_still(0.02, 800);
+
+    const double roll = get_box_edge_roll(target);
+    if (!do_grasp_move(target, roll))
     {
       return false;
     }
@@ -1814,7 +1870,7 @@ private:
             break;
           }
         }
-        do_full_grasp(target);
+        do_full_grasp_aligned(target);
         break;
       }
 

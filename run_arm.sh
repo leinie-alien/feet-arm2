@@ -311,10 +311,7 @@ if [[ "$SIM_MODE" == "false" ]] && [[ -e "$SUCTION_PORT" ]]; then
   if [[ -f "$SUCTION_WS/install/setup.bash" ]]; then
     echo "[run_arm] launching suction_service_node on $SUCTION_PORT..."
     launch_in_group SUCTION_PID \
-      ros2 run suction_serial_bridge suction_service_node \
-        --ros-args \
-        -p serial_port:="$SUCTION_PORT" \
-        -p service_name:=set_suction
+      ros2 launch suction_serial_bridge suction_service.launch.py
   else
     echo "[run_arm] WARN: suction workspace not built ($SUCTION_WS/install/setup.bash missing), skipping."
   fi
