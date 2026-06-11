@@ -3,6 +3,7 @@
 #include <cerrno>
 #include <chrono>
 #include <cmath>
+#include <condition_variable>
 #include <deque>
 #include <iostream>
 #include <limits>
@@ -32,6 +33,7 @@
 #include "robot_msgs/srv/set_controller_mode.hpp"
 #include "robot_msgs/srv/set_suction.hpp"
 #include "std_msgs/msg/bool.hpp"
+#include "std_msgs/msg/string.hpp"
 #include "tf2_geometry_msgs/tf2_geometry_msgs.hpp"
 #include "tf2_ros/buffer.h"
 #include "tf2_ros/transform_listener.h"
@@ -166,6 +168,23 @@ public:
           }
         });
 
+    // ── Remote Control (optional) ──────────────────────────────────────────
+    remote_mode_ = this->declare_parameter("task.remote_mode", false);
+    if (remote_mode_)
+    {
+      status_pub_ = this->create_publisher<std_msgs::msg::String>("/arm/status", 10);
+      cmd_sub_ = this->create_subscription<std_msgs::msg::String>(
+          "/arm/cmd", 10,
+          [this](const std_msgs::msg::String::SharedPtr msg)
+          {
+            if (!msg) return;
+            std::lock_guard<std::mutex> lk(cmd_mutex_);
+            pending_cmd_ = msg->data;
+            cmd_cv_.notify_one();
+          });
+      RCLCPP_INFO(this->get_logger(), "Remote control mode enabled.");
+    }
+
     // ── Service & Action Clients ───────────────────────────────────────────
     pick_client_ = this->create_client<robot_msgs::srv::GetPickPos>("get_pick_pos");
     place_client_ = this->create_client<robot_msgs::srv::GetPlacePos>("get_place_pos");
@@ -189,7 +208,14 @@ public:
 
   void start()
   {
-    task_thread_ = std::thread(&TaskNode::run_task_sequence, this);
+    if (remote_mode_)
+    {
+      task_thread_ = std::thread(&TaskNode::run_remote_control, this);
+    }
+    else
+    {
+      task_thread_ = std::thread(&TaskNode::run_task_sequence, this);
+    }
   }
 
 private:
@@ -1692,6 +1718,158 @@ private:
   // SECTION 4 — Main Task Loop
   // ═══════════════════════════════════════════════════════════════════════════
 
+  // ═══════════════════════════════════════════════════════════════════════════
+  // SECTION 5 — Remote Control (外部节点通过 /arm/cmd 控制)
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  void publish_status(const std::string &s)
+  {
+    if (!status_pub_) return;
+    std_msgs::msg::String msg;
+    msg.data = s;
+    status_pub_->publish(msg);
+    RCLCPP_INFO(this->get_logger(), "[remote] status → \"%s\"", s.c_str());
+  }
+
+  /**
+   * @brief 完整抓取序列（远程模式）：
+   *        look_out → perception → grasp → suction ON
+   *        → sleep 0.5s → "grasped"
+   *        → carry preset → loaded → "stowed"
+   */
+  bool do_grasp_sequence()
+  {
+    geometry_msgs::msg::Pose target;
+
+    // look_out 朝正前，再调感知
+    geometry_msgs::msg::Pose fwd;
+    fwd.position.x = 1.0;
+    fwd.orientation.w = 1.0;
+    request_mode_switch("moving");
+    do_look_out(fwd);
+    wait_joints_still(0.02, 800);
+
+    if (!call_pick_service_sync(step6_pick_object_name_, &target))
+    {
+      publish_status("error:perception_failed");
+      return false;
+    }
+
+    if (!do_full_grasp_aligned(target))
+    {
+      publish_status("error:grasp_failed");
+      return false;
+    }
+
+    rclcpp::sleep_for(500ms);
+    publish_status("grasped");
+
+    // carry：moving → carry preset → loaded
+    if (!request_mode_switch("moving"))
+    {
+      publish_status("error:mode_switch_failed");
+      return false;
+    }
+    if (!presets_.count("carry"))
+    {
+      RCLCPP_ERROR(this->get_logger(), "[remote] Preset 'carry' not found!");
+      publish_status("error:no_carry_preset");
+      return false;
+    }
+    if (!send_move_goal({presets_["carry"]}) || !wait_for_action_completion())
+    {
+      publish_status("error:carry_failed");
+      return false;
+    }
+    request_mode_switch("loaded");
+
+    publish_status("stowed");
+    return true;
+  }
+
+  /**
+   * @brief 完整放置序列（远程模式）：
+   *        perception → do_place_move_with_orientation（含 suction OFF + retreat）
+   *        → "placed" → do_reset → "reset"
+   */
+  bool do_place_sequence()
+  {
+    geometry_msgs::msg::Pose frame_pose;
+
+    if (!call_place_service_sync(place_frame_name_, &frame_pose))
+    {
+      publish_status("error:place_perception_failed");
+      return false;
+    }
+
+    request_mode_switch("moving");
+    if (!do_place_move_with_orientation(frame_pose))
+    {
+      publish_status("error:place_failed");
+      return false;
+    }
+
+    publish_status("placed");
+
+    do_reset();
+    publish_status("reset");
+    return true;
+  }
+
+  /**
+   * @brief 远程控制主循环。
+   *        启动后先 reset，广播 "reset"，然后等待 /arm/cmd 命令。
+   *        支持 "grasp" / "place"；执行中拒绝新命令并广播 "error:busy"。
+   */
+  void run_remote_control()
+  {
+    if (!wait_for_system_ready())
+    {
+      return;
+    }
+    RCLCPP_INFO(this->get_logger(), "[remote] Ready. Performing initial reset...");
+    do_reset();
+    publish_status("reset");
+    RCLCPP_INFO(this->get_logger(), "[remote] Waiting for commands on /arm/cmd ...");
+
+    while (rclcpp::ok() && is_running_.load())
+    {
+      std::string cmd;
+      {
+        std::unique_lock<std::mutex> lk(cmd_mutex_);
+        cmd_cv_.wait_for(lk, std::chrono::milliseconds(200),
+                         [this] { return !pending_cmd_.empty(); });
+        if (pending_cmd_.empty()) continue;
+        cmd = pending_cmd_;
+        pending_cmd_.clear();
+      }
+
+      if (remote_busy_.exchange(true))
+      {
+        publish_status("error:busy");
+        continue;
+      }
+
+      if (cmd == "grasp")
+      {
+        RCLCPP_INFO(this->get_logger(), "[remote] Executing grasp sequence...");
+        do_grasp_sequence();
+      }
+      else if (cmd == "place")
+      {
+        RCLCPP_INFO(this->get_logger(), "[remote] Executing place sequence...");
+        do_place_sequence();
+      }
+      else
+      {
+        RCLCPP_WARN(this->get_logger(), "[remote] Unknown command: %s", cmd.c_str());
+        publish_status("error:unknown_cmd:" + cmd);
+      }
+
+      remote_busy_.store(false);
+    }
+  }
+
   void run_task_sequence()
   {
     if (!wait_for_system_ready())
@@ -2144,6 +2322,15 @@ private:
   rclcpp::Client<robot_msgs::srv::SetControllerMode>::SharedPtr mode_client_;
   rclcpp::Client<robot_msgs::srv::GetPayloadEstimate>::SharedPtr payload_client_;
   rclcpp_action::Client<MoveJoint>::SharedPtr move_joint_client_;
+
+  // Remote control
+  bool remote_mode_{false};
+  std::atomic<bool> remote_busy_{false};
+  rclcpp::Publisher<std_msgs::msg::String>::SharedPtr status_pub_;
+  rclcpp::Subscription<std_msgs::msg::String>::SharedPtr cmd_sub_;
+  std::mutex cmd_mutex_;
+  std::condition_variable cmd_cv_;
+  std::string pending_cmd_;
 
   // Thread
   std::atomic<bool> is_running_{true};

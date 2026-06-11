@@ -47,7 +47,7 @@
         kp: [1.0, 2.0, 1.0, 0.5, 0.0]
       #4. 负载模式 (LOADED): 高增益，应对抓取 500g 负载后的惯量增加，提高刚性减少静差
       loaded:
-        kd: [3.0, 8.0, 3.0, 3.2, 0.1]
+        kd: [3.0, 8.5, 3.0, 3.2, 0.1]         # 之前是8.0
         kp: [10.0, 20.0, 12.0, 8.5, 0.6]
       #3. 运动模式 (MOVING): 标准增益，兼顾响应速度和稳定性，用于瞭望、俯瞰等空载移动
       moving:
@@ -98,6 +98,7 @@
     task:
       require_payload_service: false
       require_suction_service: false
+      remote_mode: true          # true = 通过 /arm/cmd topic 控制，false = 菜单交互模式
 
     task_step6:
       grasp_pitch:       -1.57    # 抓取末端俯仰角 (rad)

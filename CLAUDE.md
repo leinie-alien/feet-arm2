@@ -28,6 +28,9 @@ src/
 ├── robot_msgs/         # 自定义消息/服务/Action 定义
 ├── dm_motor_sdk_ros/   # Damiao CAN 电机驱动（底层）
 └── ftservo_hls3625_teach/ # 舵机示教笔（可选，独立）
+tools/
+└── remote_control_test/
+    └── arm_controller.py   # 远程控制测试脚本（独立，非 ROS2 包）
 ```
 
 ---
@@ -52,6 +55,7 @@ src/
 | Section 2 | Task Building Blocks（do_reset / do_look_out / do_grasp_move 等） | 调参数时不需改代码 |
 | Section 3 | 3-Phase Pipeline（phase1/2/3 + do_3phase_grasp/place） | 偶尔调整流程 |
 | Section 4 | run_task_sequence（菜单 loop） | 加新 case 时改这里 |
+| Section 5 | Remote Control（run_remote_control / do_grasp_sequence / do_place_sequence） | 远程控制流程调整时改这里 |
 
 ### 关键头文件
 
@@ -78,18 +82,29 @@ bool solveIK(const Eigen::Vector3d& target, Eigen::VectorXd& q_out, double r_off
 pinocchio::SE3 forwardKinematics(const Eigen::VectorXd& q);
 ```
 
-### tool_roll 计算（task_node 内部，Section 1）
+### tool_roll 计算（task_node 内部，Section 1/2）
 
 ```cpp
-// get_object_yaw(target_world)：
-//   object_yaw = atan2(target.y, target.x)   // 物体相对 world 的方位角
-//   base_yaw   = q_current_[0]               // joint_0 当前值
-//   tool_roll  = normalize_angle(object_yaw - base_yaw)
-//
-// 效果：让工具轴对准物体方向，消除 joint_0 转动带入的滚转误差
+// get_object_yaw(target_world)：恒返回 0
+//   object_yaw = atan2(target.y, target.x)
+//   base_yaw   = object_yaw（IK 会把 joint_0 设成同样的值）
+//   → 差值恒为 0，吸盘不额外旋转
+//   用途：do_place_move（普通放置）和无朝向抓取
+
+// get_box_edge_roll(target_world)：从视觉 orientation 提取箱子主边偏转角
+//   视觉返回 R = [axis_u | axis_v | n_hat]（camera_link 系），经 TF 变换到 world 系
+//   edge_yaw = atan2(R[1,0], R[0,0])      // 主边在 world XY 平面的方位角
+//   base_yaw = atan2(target.y, target.x)   // ≈ joint_0
+//   roll     = normalize(edge_yaw - base_yaw)，再归一化到 [-π/2, π/2]（矩形180°对称）
+//   → joint_4 转到对齐主边的角度
+//   用途：case 6 do_full_grasp_aligned
+
+// get_frame_yaw(frame_world)：与 get_box_edge_roll 完全对称，用于放置框
+//   从 orientation 提取 Z 轴 yaw，减去 joint0_ik，归一化到 [-π/2, π/2]
+//   用途：case 4/5 do_place_move_with_orientation
 ```
 
-`do_grasp_move` 和 `do_place_move` 均在内部调用 `get_object_yaw()` 并传给 `solveIK`，外部无需处理 roll。
+`do_grasp_move(target, roll)` 和 `do_place_move_with_orientation` 均由调用方传入 roll，外部负责计算。
 
 ---
 
@@ -125,8 +140,16 @@ pinocchio::SE3 forwardKinematics(const Eigen::VectorXd& q);
 
 | 服务 | 说明 |
 |---|---|
-| `get_pick_pos` | 感知节点返回目标位姿（`GetPickPos.srv`），frame_id = `camera_link` |
+| `get_pick_pos` | 手臂相机感知节点返回抓取目标位姿（`GetPickPos.srv`），frame_id = `camera_link` |
+| `get_place_pos` | 狗头相机感知节点返回放置框位姿（`GetPlacePos.srv`），frame_id = `dog_camera_link` |
 | `set_suction` | 吸盘开关（`SetSuction.srv`） |
+
+### 远程控制话题（task.remote_mode: true 时启用）
+
+| 话题 | 方向 | 类型 | 说明 |
+|---|---|---|---|
+| `/arm/cmd` | 接收 | `std_msgs/String` | `"grasp"` / `"place"` |
+| `/arm/status` | 发布 | `std_msgs/String` | `"grasped"` / `"stowed"` / `"placed"` / `"reset"` / `"error:xxx"` |
 
 ---
 
@@ -170,7 +193,7 @@ float64[] joint_targets   # 5*num_points 个值，按行展开
 | **6** | Auto Grasp | mock/感知 → look_out → pre-grasp → grasp（含 tool_roll 对齐）→ suction ON |
 | **7** | Manual Grasp | 输入 world x y z → look_out → pre-grasp → grasp（含 tool_roll）→ suction ON |
 | **8** | Release | suction OFF → moving 模式 |
-| **9** | Reset with Suction | 保持吸盘 ON，moving → reset → idle |
+| **9** | Carry（携带复位） | 保持吸盘 ON，moving → carry 预设 → loaded |
 | **10** | Move to Load | moving → 移到 load 预设（俯瞰位） |
 | **11** | Estimate Payload | 调用 get_payload_estimate 服务，打印估计质量 |
 | **12** | 3-Phase Grasp | Phase1(粗定位) → Phase2(XY闭环对齐) → Phase3(joint4 -90°→抓取) |
@@ -262,6 +285,7 @@ Phase 3 Place（放置下降，对称）
 |---|---|---|
 | `task.require_payload_service` | false | true = 没有 payload 服务时启动失败 |
 | `task.require_suction_service` | false | true = 没有 suction 服务时启动失败 |
+| `task.remote_mode` | false | true = 通过 `/arm/cmd` topic 控制；false = 菜单交互模式 |
 
 ### 相机外参
 
@@ -368,3 +392,55 @@ bash run_arm.sh --build
 
 ### task_node 卡在 "Waiting for first robot joint state..."
 检查 `robot_msgs/msg/MotorState.msg` 是否包含 `bool valid` 字段，以及驱动发布的消息里 `valid=true`。仿真时确认 `mujoco_runner/main.py` 中 `ms.valid = True`。
+
+---
+
+## 14. 远程控制模式
+
+`params.yaml` 设 `task.remote_mode: true` 后，task_node 启动时自动执行 reset，之后通过 topic 接受外部命令，不弹菜单。
+
+### 时序
+
+```
+启动 → do_reset → 广播 "reset" → 等命令
+
+收到 "grasp":
+  → look_out + perception（get_pick_pos）
+  → do_full_grasp_aligned（grasp + suction ON）
+  → sleep 0.5s → 广播 "grasped"
+  → moving → carry 预设 → loaded
+  → 广播 "stowed"
+
+收到 "place":
+  → call_place_service_sync（get_place_pos）
+  → do_place_move_with_orientation（place + suction OFF + retreat）
+  → 广播 "placed"
+  → do_reset
+  → 广播 "reset"
+
+执行中收到新命令 → 广播 "error:busy"
+```
+
+### 测试脚本
+
+```bash
+# source 环境
+source /opt/ros/humble/setup.bash
+source ~/task/arm/feet-arm2-main/install/setup.bash
+
+# 交互模式（g=grasp / p=place / q=quit）
+python3 tools/remote_control_test/arm_controller.py
+
+# 单次命令
+python3 tools/remote_control_test/arm_controller.py --once grasp
+python3 tools/remote_control_test/arm_controller.py --once place
+```
+
+### roll 对齐逻辑（2026-06 修正）
+
+抓取和放置的 joint_4 roll 两套完全对称，互相独立：
+
+- **抓取**：`get_box_edge_roll` 从抓取目标 orientation 提取主边方向，归一化到 `[-π/2, π/2]`
+- **放置**：`get_frame_yaw` 从放置框 orientation 提取主边方向，同样归一化到 `[-π/2, π/2]`
+
+视觉服务（手臂相机 `/camera`、狗头相机 `/head_camera`）均返回 `R = [axis_u | axis_v | n_hat]`，第一列 axis_u 为物体主边方向。经 TF 变换到 world 系后，`atan2(R[1,0], R[0,0]) - joint0_ik` 即为 joint_4 需要转的量。

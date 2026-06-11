@@ -1,8 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-ROOT_DIR="/home/primarymage/WorkFile/esp_ws"
-WS_DIR="${ROOT_DIR}/ros2_suction_ws"
+WS_DIR="/home/zyy/task/arm/feet-arm2-main"
 SERIAL_PORT="${1:-/dev/esp32_suction_c3}"
 SERVICE_NAME="${2:-set_suction}"
 SERVER_PID=""
