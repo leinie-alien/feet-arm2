@@ -333,8 +333,14 @@ private:
     const double base_yaw = std::atan2(world_pose.position.y, world_pose.position.x);
     double roll = normalize_angle(edge_yaw - base_yaw);
 
+    // 矩形 180° 对称：u 和 -u 等效
     if (roll >  M_PI / 2.0) roll -= M_PI;
     if (roll < -M_PI / 2.0) roll += M_PI;
+
+    // 矩形 90° 对称：视觉可能返回 axis_u 也可能返回 axis_v（相差90°），
+    // 两条边对吸盘都等效，选转角绝对值更小的那条边，将 roll 范围收窄到 [-π/4, π/4]
+    const double roll_alt = (roll >= 0.0) ? (roll - M_PI / 2.0) : (roll + M_PI / 2.0);
+    if (std::abs(roll_alt) < std::abs(roll)) roll = roll_alt;
 
     RCLCPP_INFO(this->get_logger(),
                 "[box_edge_roll] edge_yaw=%.3f base_yaw=%.3f roll=%.3f rad",
@@ -685,9 +691,13 @@ private:
     double tool_roll = normalize_angle(
         place_frame_roll_sign_ * (frame_yaw - joint0_ik));
 
-    // 矩形 180° 对称：与 get_box_edge_roll 保持一致，归一化到 [-π/2, π/2]
+    // 矩形 180° 对称：归一化到 [-π/2, π/2]
     if (tool_roll >  M_PI / 2.0) tool_roll -= M_PI;
     if (tool_roll < -M_PI / 2.0) tool_roll += M_PI;
+
+    // 矩形 90° 对称：视觉可能返回 axis_u 也可能返回 axis_v（相差90°），选转角绝对值更小的边
+    const double roll_alt = (tool_roll >= 0.0) ? (tool_roll - M_PI / 2.0) : (tool_roll + M_PI / 2.0);
+    if (std::abs(roll_alt) < std::abs(tool_roll)) tool_roll = roll_alt;
 
     RCLCPP_INFO(this->get_logger(),
                 "[get_frame_yaw] frame_yaw=%.3f joint0_ik=%.3f tool_roll=%.3f",
