@@ -165,8 +165,8 @@ float64[] joint_targets   # 5*num_points 个值，按行展开
 | **1** | Reset | 吸盘 OFF → moving → 移到 reset 预设 → idle |
 | **2** | Preset A（调试） | moving → 移到硬编码关节角 [0,160,-130,40,0]° |
 | **3** | Preset B（调试） | moving → 移到硬编码关节角 [180,90,-90,-90,0]° |
-| **4** | Auto Place（手动坐标） | 输入 world x y z → look_out → pre-place → place → suction OFF → 垂直后退 |
-| **5** | Manual Place | 同 case 4（输入 world x y z） |
+| **4** | Auto Place（感知坐标） | 调用狗头相机感知服务获取方框位姿 → do_place_move_with_orientation（无 look_out，无手动输入） |
+| **5** | Manual Place | 手动输入 world x y z yaw → do_place_move_with_orientation |
 | **6** | Auto Grasp | mock/感知 → look_out → pre-grasp → grasp（含 tool_roll 对齐）→ suction ON |
 | **7** | Manual Grasp | 输入 world x y z → look_out → pre-grasp → grasp（含 tool_roll）→ suction ON |
 | **8** | Release | suction OFF → moving 模式 |
