@@ -656,8 +656,12 @@ private:
     const double joint0_ik = std::atan2(
         frame_world.position.y, frame_world.position.x);
 
-    const double tool_roll = normalize_angle(
+    double tool_roll = normalize_angle(
         place_frame_roll_sign_ * (frame_yaw - joint0_ik));
+
+    // 矩形 180° 对称：与 get_box_edge_roll 保持一致，归一化到 [-π/2, π/2]
+    if (tool_roll >  M_PI / 2.0) tool_roll -= M_PI;
+    if (tool_roll < -M_PI / 2.0) tool_roll += M_PI;
 
     RCLCPP_INFO(this->get_logger(),
                 "[get_frame_yaw] frame_yaw=%.3f joint0_ik=%.3f tool_roll=%.3f",
