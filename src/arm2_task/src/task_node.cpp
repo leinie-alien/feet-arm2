@@ -1788,7 +1788,6 @@ private:
                     "[case4] frame world=(%.3f,%.3f,%.3f)",
                     frame_pose.position.x, frame_pose.position.y, frame_pose.position.z);
 
-        request_mode_switch("moving");
         if (!do_place_move_with_orientation(frame_pose))
         {
           RCLCPP_ERROR(this->get_logger(), "[case4] Place move failed.");
