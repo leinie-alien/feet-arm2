@@ -10,12 +10,18 @@ from launch_ros.actions import Node
 def generate_launch_description():
     package_name = "arm2_task"
     pkg_share = get_package_share_directory(package_name)
-    default_config_path = os.path.join(pkg_share, "config", "params.yaml")
+    default_control_params = os.path.join(pkg_share, "config", "control_params.yaml")
+    default_task_params = os.path.join(pkg_share, "config", "task_params.yaml")
 
-    params_path_arg = DeclareLaunchArgument(
-        "params_path",
-        default_value=default_config_path,
-        description="Full path to the ROS2 parameters file to use",
+    control_params_arg = DeclareLaunchArgument(
+        "control_params_path",
+        default_value=default_control_params,
+        description="Path to control node parameters file",
+    )
+    task_params_arg = DeclareLaunchArgument(
+        "task_params_path",
+        default_value=default_task_params,
+        description="Path to task node parameters file",
     )
 
     trajectory_planner_node = Node(
@@ -23,7 +29,7 @@ def generate_launch_description():
         executable="trajectory_planner_node",
         name="trajectory_planner_node",
         output="screen",
-        parameters=[LaunchConfiguration("params_path")],
+        parameters=[LaunchConfiguration("control_params_path")],
         namespace="",
         emulate_tty=True,
     )
@@ -33,7 +39,7 @@ def generate_launch_description():
         executable="inverse_dynamics_node",
         name="inverse_dynamics_node",
         output="screen",
-        parameters=[LaunchConfiguration("params_path")],
+        parameters=[LaunchConfiguration("control_params_path")],
         namespace="",
         emulate_tty=True,
     )
@@ -48,7 +54,7 @@ def generate_launch_description():
         executable="task_node",
         name="task_node",
         output="screen",
-        parameters=[LaunchConfiguration("params_path")],
+        parameters=[LaunchConfiguration("task_params_path")],
         namespace="",
         prefix=xterm_prefix,
         emulate_tty=True,
@@ -56,7 +62,8 @@ def generate_launch_description():
 
     return LaunchDescription(
         [
-            params_path_arg,
+            control_params_arg,
+            task_params_arg,
             trajectory_planner_node,
             inverse_dynamics_node,
             task_node,

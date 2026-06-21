@@ -339,21 +339,21 @@ private:
     const double uy = 2.0 * (q.x * q.y + q.z * q.w);
     const double alpha = std::atan2(uy, ux);
 
-    // 从4个等效方向中选落在 [-π/2, 0]（第四象限）的那个
+    // 从4个等效方向中选落在 [-π, -π/2]（第三象限，180°~270°）的那个
     double chosen = alpha;
     for (int k = 0; k < 4; ++k)
     {
       const double candidate = normalize_angle(alpha + k * M_PI / 2.0);
-      if (candidate >= -M_PI / 2.0 - 1e-9 && candidate <= 1e-9)
+      if (candidate >= -M_PI - 1e-9 && candidate <= -M_PI / 2.0 + 1e-9)
       {
         chosen = candidate;
         break;
       }
     }
 
-    // edge_yaw = 选中方向离 -90° 轴的正值夹角，范围 [0, π/2]
-    const double edge_yaw = chosen + M_PI / 2.0;
-    const double base_yaw = std::atan2(world_pose.position.y, world_pose.position.x);
+    // edge_yaw = 选中方向离 -180° 轴的正值夹角，范围 [0, π/2]
+    const double edge_yaw = chosen + M_PI;
+    const double base_yaw = std::atan2(world_pose.position.y, world_pose.position.x) + M_PI / 2.0;
     const double roll = normalize_angle(base_yaw - edge_yaw);
 
     RCLCPP_INFO(this->get_logger(),
@@ -701,30 +701,38 @@ private:
   double get_frame_yaw(const geometry_msgs::msg::Pose &frame_world)
   {
     const auto &q = frame_world.orientation;
-    const double frame_yaw = std::atan2(
-        2.0 * (q.w * q.z + q.x * q.y),
-        1.0 - 2.0 * (q.y * q.y + q.z * q.z));
 
-    const double joint0_ik = std::atan2(
-        frame_world.position.y, frame_world.position.x);
+    if (std::abs(q.x) < 1e-6 && std::abs(q.y) < 1e-6 &&
+        std::abs(q.z) < 1e-6 && std::abs(q.w - 1.0) < 1e-6)
+    {
+      RCLCPP_INFO(this->get_logger(), "[get_frame_yaw] identity orientation, roll=0");
+      return 0.0;
+    }
 
-    double tool_roll = normalize_angle(
-        place_frame_roll_sign_ * (frame_yaw - joint0_ik));
+    const double ux = 1.0 - 2.0 * (q.y * q.y + q.z * q.z);
+    const double uy = 2.0 * (q.x * q.y + q.z * q.w);
+    const double alpha = std::atan2(uy, ux);
 
-    // 矩形 180° 对称：归一化到 [-π/2, π/2]
-    if (tool_roll > M_PI / 2.0)
-      tool_roll -= M_PI;
-    if (tool_roll < -M_PI / 2.0)
-      tool_roll += M_PI;
+    // 从4个等效方向中选落在 [-π, -π/2]（第三象限）的那个
+    double chosen = alpha;
+    for (int k = 0; k < 4; ++k)
+    {
+      const double candidate = normalize_angle(alpha + k * M_PI / 2.0);
+      if (candidate >= -M_PI - 1e-9 && candidate <= -M_PI / 2.0 + 1e-9)
+      {
+        chosen = candidate;
+        break;
+      }
+    }
 
-    // 矩形 90° 对称：视觉可能返回 axis_u 也可能返回 axis_v（相差90°），选转角绝对值更小的边
-    const double roll_alt = (tool_roll >= 0.0) ? (tool_roll - M_PI / 2.0) : (tool_roll + M_PI / 2.0);
-    if (std::abs(roll_alt) < std::abs(tool_roll))
-      tool_roll = roll_alt;
+    // edge_yaw = 选中方向离 -180° 轴的正值夹角，范围 [0, π/2]
+    const double edge_yaw = chosen + M_PI;
+    const double base_yaw = std::atan2(frame_world.position.y, frame_world.position.x) + M_PI / 2.0;
+    const double tool_roll = normalize_angle(base_yaw - edge_yaw);
 
     RCLCPP_INFO(this->get_logger(),
-                "[get_frame_yaw] frame_yaw=%.3f joint0_ik=%.3f tool_roll=%.3f",
-                frame_yaw, joint0_ik, tool_roll);
+                "[get_frame_yaw] alpha=%.3f chosen=%.3f edge_yaw=%.3f base_yaw=%.3f roll=%.3f rad (%.1f deg)",
+                alpha, chosen, edge_yaw, base_yaw, tool_roll, tool_roll * 180.0 / M_PI);
     return tool_roll;
   }
 

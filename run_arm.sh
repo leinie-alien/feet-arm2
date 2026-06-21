@@ -18,9 +18,11 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 WS_DIR="${WS_DIR:-$SCRIPT_DIR}"
 ROS_SETUP="/opt/ros/humble/setup.bash"
 WS_SETUP="$WS_DIR/install/setup.bash"
-PARAMS_FILE="${PARAMS_FILE:-$WS_DIR/src/arm2_task/config/params.yaml}"
+CONTROL_PARAMS_FILE="${CONTROL_PARAMS_FILE:-$WS_DIR/src/arm2_task/config/control_params.yaml}"
+TASK_PARAMS_FILE="${TASK_PARAMS_FILE:-$WS_DIR/src/arm2_task/config/task_params.yaml}"
 DRIVER_PARAMS_FILE="${DRIVER_PARAMS_FILE:-$WS_DIR/src/dm_motor_sdk_ros/config/dm_motor_robot_driver.yaml}"
 SIM_WS="${SIM_WS:-$HOME/data/robotics/arm_mujuco_ws}"
+NAV_WS_SETUP="${NAV_WS_SETUP:-$HOME/task/nav_ws/install/setup.bash}"
 SUCTION_WS="${SUCTION_WS:-$WS_DIR}"
 SUCTION_PORT="${SUCTION_PORT:-/dev/esp32_suction_c3}"
 
@@ -63,7 +65,8 @@ Options:
   --sim-ws <dir>       指定仿真工作区目录（其中应包含 sim_arm.sh）
   --no-xterm           task_node 输出到当前终端，不弹 xterm（SSH 场景）
   --build              启动前先编译 dm_motor_sdk_ros 和 arm2_task
-  --params <file>      指定 arm2_task params.yaml 路径
+  --control-params <f> 指定 control_node 参数文件路径
+  --task-params <f>    指定 task_node 参数文件路径
   --driver-params <f>  指定驱动 yaml 路径（真机模式有效）
   --ready-timeout <s>  等待驱动就绪的超时秒数（默认 $READY_TIMEOUT）
   -h, --help           显示此帮助
@@ -72,7 +75,8 @@ Options:
   SIM_MODE=true        等同于 --sim
   TASK_IN_XTERM=false  等同于 --no-xterm
   AUTO_BUILD=true      等同于 --build
-  PARAMS_FILE=<path>   等同于 --params
+  CONTROL_PARAMS_FILE=<path> 等同于 --control-params
+  TASK_PARAMS_FILE=<path>    等同于 --task-params
   SIM_WS=<path>        等同于 --sim-ws
   SUCTION_WS=<path>    吸盘工作区（默认当前工作区）
   SUCTION_PORT=<path>  吸盘串口设备（默认 /dev/esp32_suction_c3）
@@ -201,8 +205,9 @@ while [[ $# -gt 0 ]]; do
     --sim-ws)         SIM_WS="$2";             shift 2 ;;
     --no-xterm)       TASK_IN_XTERM=false;     shift ;;
     --build)          AUTO_BUILD=true;         shift ;;
-    --params)         PARAMS_FILE="$2";        shift 2 ;;
-    --driver-params)  DRIVER_PARAMS_FILE="$2"; shift 2 ;;
+    --control-params)  CONTROL_PARAMS_FILE="$2"; shift 2 ;;
+    --task-params)     TASK_PARAMS_FILE="$2";    shift 2 ;;
+    --driver-params)   DRIVER_PARAMS_FILE="$2";  shift 2 ;;
     --ready-timeout)  READY_TIMEOUT="$2";      shift 2 ;;
     -h|--help)        usage; exit 0 ;;
     *) echo "[run_arm] ERROR: unknown option: $1" >&2; usage >&2; exit 1 ;;
@@ -213,8 +218,9 @@ done
 #  启动前校验
 # ------------------------------------------------------------------ #
 
-[[ -f "$ROS_SETUP" ]]    || { echo "[run_arm] ERROR: ROS setup not found: $ROS_SETUP" >&2; exit 1; }
-[[ -f "$PARAMS_FILE" ]]  || { echo "[run_arm] ERROR: params not found: $PARAMS_FILE" >&2; exit 1; }
+[[ -f "$ROS_SETUP" ]]           || { echo "[run_arm] ERROR: ROS setup not found: $ROS_SETUP" >&2; exit 1; }
+[[ -f "$CONTROL_PARAMS_FILE" ]] || { echo "[run_arm] ERROR: control params not found: $CONTROL_PARAMS_FILE" >&2; exit 1; }
+[[ -f "$TASK_PARAMS_FILE" ]]    || { echo "[run_arm] ERROR: task params not found: $TASK_PARAMS_FILE" >&2; exit 1; }
 if [[ "$SIM_MODE" == "false" ]]; then
   [[ -f "$DRIVER_PARAMS_FILE" ]] \
     || { echo "[run_arm] ERROR: driver params not found: $DRIVER_PARAMS_FILE" >&2; exit 1; }
@@ -229,7 +235,8 @@ echo "╔═══════════════════════�
 echo "║         run_arm.sh — 5-DOF 机械臂        ║"
 echo "╚══════════════════════════════════════════╝"
 echo "  workspace    : $WS_DIR"
-echo "  params       : $PARAMS_FILE"
+echo "  control params: $CONTROL_PARAMS_FILE"
+echo "  task params  : $TASK_PARAMS_FILE"
 echo "  mode         : $([ "$SIM_MODE" == "true" ] && echo "仿真（MuJoCo）" || echo "真机（Damiao CAN）")"
 echo "  task_in_xterm: $TASK_IN_XTERM"
 echo ""
@@ -239,6 +246,11 @@ echo ""
 # ------------------------------------------------------------------ #
 
 source_setup "$ROS_SETUP"
+if [[ -f "$NAV_WS_SETUP" ]]; then
+  source_setup "$NAV_WS_SETUP"
+else
+  echo "[run_arm] WARN: nav_ws setup not found ($NAV_WS_SETUP), navigation integration may not work."
+fi
 
 if [[ "$AUTO_BUILD" == "true" ]]; then
   echo "[run_arm] building packages..."
@@ -298,7 +310,7 @@ fi
 echo "[run_arm] launching control_node..."
 launch_in_group CONTROL_PID \
   ros2 run arm2_task control_node \
-    --ros-args --params-file "$PARAMS_FILE"
+    --ros-args --params-file "$CONTROL_PARAMS_FILE"
 
 # control_node 需要订阅到 ready 信号后才开始工作，给它一秒初始化
 sleep 1
@@ -330,11 +342,11 @@ if [[ "$TASK_IN_XTERM" == "true" ]]; then
     xterm -hold -u8 -T "Arm — Task Control Panel" \
       -fn "-misc-fixed-medium-r-normal--18-120-100-100-c-90-iso10646-1" \
       -e bash -c "ros2 run arm2_task task_node \
-           --ros-args --params-file '$PARAMS_FILE' 2>&1 | tee '$TASK_LOG'"
+           --ros-args --params-file '$TASK_PARAMS_FILE' 2>&1 | tee '$TASK_LOG'"
 else
   launch_in_group TASK_PID \
     ros2 run arm2_task task_node \
-      --ros-args --params-file "$PARAMS_FILE" 2>&1 | tee "$TASK_LOG"
+      --ros-args --params-file "$TASK_PARAMS_FILE" 2>&1 | tee "$TASK_LOG"
 fi
 
 echo ""

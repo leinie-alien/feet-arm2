@@ -11,12 +11,18 @@ def generate_launch_description():
     pkg_share = get_package_share_directory(package_name)
 
     # 2. 定义可配置的参数路径 (可以通过 ros2 launch ... params_path:=/new/path 修改)
-    default_config_path = os.path.join(pkg_share, 'config', 'params.yaml')
-    
-    params_path_arg = DeclareLaunchArgument(
-        'params_path',
-        default_value=default_config_path,
-        description='Full path to the ROS2 parameters file to use'
+    default_control_params = os.path.join(pkg_share, 'config', 'control_params.yaml')
+    default_task_params = os.path.join(pkg_share, 'config', 'task_params.yaml')
+
+    control_params_arg = DeclareLaunchArgument(
+        'control_params_path',
+        default_value=default_control_params,
+        description='Path to control node parameters file'
+    )
+    task_params_arg = DeclareLaunchArgument(
+        'task_params_path',
+        default_value=default_task_params,
+        description='Path to task node parameters file'
     )
 
     # 3. 定义控制节点 (Control Node)
@@ -26,9 +32,9 @@ def generate_launch_description():
         executable='control_node',
         name='control_node',
         output='screen',
-        parameters=[LaunchConfiguration('params_path')],
+        parameters=[LaunchConfiguration('control_params_path')],
         # 强制将节点置于根命名空间，确保匹配 YAML 中的 /**
-        namespace='', 
+        namespace='',
         emulate_tty=True
     )
 
@@ -42,16 +48,17 @@ def generate_launch_description():
     task_node = Node(
         package=package_name,
         executable='task_node',
-        name='task_node', 
+        name='task_node',
         output='screen',
-        parameters=[LaunchConfiguration('params_path')],
+        parameters=[LaunchConfiguration('task_params_path')],
         namespace='',
         prefix=xterm_prefix
     )
 
     # 5. 返回启动描述
     return LaunchDescription([
-        params_path_arg,
+        control_params_arg,
+        task_params_arg,
         control_node,
         task_node
     ])

@@ -1,0 +1,101 @@
+---
+/**:
+  ros__parameters:
+
+    #相机安装位置
+    camera_extrinsics:
+      child_frame: camera_link
+      parent_frame: Link_4
+      #pos: [-0.071470, -0.103035, 0.027404]
+      #quat: [0.02799937, 0.69705640, -0.00605161, 0.71644385]
+      pos: [-0.031763, -0.090418, 0.041408]
+      quat: [0.04806441, 0.69986392, -0.06693250, 0.70950712]
+
+    # 狗头相机外参（待标定，当前全部为占位值）
+    dog_camera_extrinsics:
+      parent_frame: world
+      child_frame:  dog_camera_link
+      pos: [0.101263, 0.046662, -0.032759]
+      quat:  [-0.57775393, 0.64149970, -0.36065040, 0.35300115]
+
+    # 动力学与摩擦力补偿参数
+    # tau_f = fc * tanh(alpha * dq) + fv * dq
+    dynamics:
+      friction:
+        GearRatio: [10.0, 30.0, 30.0, 7.0, 7.0]
+        alpha: 80.0
+        fc: [0.25, 0.7, 0.25, 0.07, 0.05]
+        fv: [0.00026634, 0.00013977, 0.00028228, 0.00012035, 0.00013322]
+      joints: ["Yaw_joint", "Pitch_1", "Pitch_2", "pitch_3", "roll"]
+
+    # 关节空间控制器 PD 参数（四套增益组）
+    gains:
+      gravity_comp:
+        kd: [1.0, 2.5, 0.8, 0.2, 0.02]
+        kp: [2.0, 8.5, 3.0, 1.2, 0.1]
+      idle:
+        kd: [0.5, 0.5, 0.5, 0.2, 0.1]
+        kp: [1.0, 2.0, 1.0, 0.5, 0.0]
+      loaded:
+        kd: [3.0, 8.5, 3.0, 3.2, 0.2]
+        kp: [10.0, 20.0, 12.0, 8.5, 0.8]
+      moving:
+        kd: [2.2, 4.0, 1.5, 2.2, 0.1]
+        kp: [8.5, 15.0, 8.0, 8.2, 0.5]
+      teach_pendant:
+        kd: [1.0, 4.0, 1.5, 0.1, 0.1]
+        kp: [3.5, 15.0, 8.0, 1.2, 0.5]
+      teach_drag:
+        kd: [0.15, 0.80, 0.35, 0.12, 0.05]
+        kp: [0.00, 0.25, 0.15, 0.08, 0.00]
+
+    # 负载识别与判定
+    payload_management:
+      box_dim: 0.25
+      com_offset: [0.0, 0.0, 0.2219]
+      estimation_joint_index: 1.0
+      expected_mass: 0.5
+      identification_time: 0.2
+      load_threshold: 0.1
+      min_lever_arm: 0.05
+
+    # 机器人几何参数 (用于解析逆解)
+    robot_geometry:
+      l1: 0.0845
+      l2: 0.350005
+      l3: 0.243441
+      l4: 0.046
+
+    # 轨迹规划参数
+    trajectory_planner:
+      state_topic: /arm2/_lowState/joint
+      target_topic: /joint_target_state
+      ready_topic: /robot_driver/ready
+      action_name: move_joint
+      publish_rate_hz: 100.0
+      target_qos_depth: 10
+      min_segment_duration: 0.3
+      log_targets: false
+      dist_threshold: 0.05
+      max_acceleration: 1.0
+      max_velocity: 0.5
+
+    inverse_dynamics:
+      state_topic: /arm2/_lowState/joint
+      target_topic: /joint_target_state
+      command_topic: /arm2/_lowCmd/command
+      ready_topic: /robot_driver/ready
+      mode_service: set_controller_mode
+      payload_service: set_payload_state
+      control_rate_hz: 100.0
+      target_timeout_sec: 0.25
+      target_qos_depth: 10
+      hold_position_on_startup: true
+      default_mode: moving
+      log_input: false
+      angle_window_lower: [-4.1887902, 0.0, -3.0, -2.0, -3.14159265]
+      angle_window_upper: [4.1887902, 3.5, 0.15, 1.57, 3.14159265]
+      command_velocity_limits: [2.0, 1.5, 2.0, 2.0, 3.0]
+      command_torque_limits: [8.0, 20.0, 8.0, 8.0, 4.0]
+
+    urdf_path: urdf/arm2.urdf
