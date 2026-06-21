@@ -11,8 +11,10 @@ find_package(tf2_geometry_msgs REQUIRED)
 find_package(geometry_msgs REQUIRED)
 find_package(sensor_msgs REQUIRED)
 find_package(pinocchio REQUIRED)
-find_package(robot_msgs REQUIRED) 
+find_package(robot_msgs REQUIRED)
+find_package(navigation REQUIRED)
 find_package(std_msgs REQUIRED)
+find_package(std_srvs REQUIRED)
 find_package(ament_index_cpp REQUIRED)
 
 # 2. 包含头文件
@@ -47,12 +49,14 @@ ament_target_dependencies(control_node
 # 编译任务管理节点
 add_executable(task_node src/task_node.cpp)
 target_link_libraries(task_node arm2_algorithms)
-ament_target_dependencies(task_node 
-  rclcpp 
-  geometry_msgs 
-  pinocchio 
+ament_target_dependencies(task_node
+  rclcpp
+  geometry_msgs
+  pinocchio
   robot_msgs
+  navigation
   std_msgs
+  std_srvs
   tf2
   tf2_ros
   tf2_geometry_msgs

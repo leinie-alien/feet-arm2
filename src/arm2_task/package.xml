@@ -16,8 +16,10 @@
   <depend>tf2_geometry_msgs</depend>
   <depend>geometry_msgs</depend>
   <depend>sensor_msgs</depend>
-  <depend>robot_msgs</depend> 
+  <depend>robot_msgs</depend>
+  <depend>navigation</depend>
   <depend>std_msgs</depend>
+  <depend>std_srvs</depend>
   <depend>pinocchio</depend>
   <depend>ament_index_cpp</depend>
 

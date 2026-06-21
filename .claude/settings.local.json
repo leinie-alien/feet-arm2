@@ -11,7 +11,15 @@
       "Bash(zsh *)",
       "Bash(git *)",
       "Bash(python3 *)",
-      "Bash(xargs cat)"
+      "Bash(xargs cat)",
+      "Bash(sort -t/ -k1)",
+      "Bash(pkill -f pose_estimator)",
+      "Bash(pkill -f dm_motor_robot_driver_node)",
+      "Bash(pkill -f control_node)",
+      "Bash(pkill -f task_node)",
+      "Bash(pkill -f suction_serial_bridge)",
+      "Bash(pkill -f plotjuggler)",
+      "Bash(sort -t_ -k4 -n)"
     ]
   }
 }

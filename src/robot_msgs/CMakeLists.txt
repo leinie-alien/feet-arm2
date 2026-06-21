@@ -52,6 +52,7 @@ elseif($ENV{ROS_DISTRO} MATCHES "foxy|humble")
     "srv/SetControllerMode.srv"
     "srv/GetPayloadEstimate.srv"
     "srv/SetPayloadState.srv"
+    "srv/StringCommand.srv"
     "action/MoveToPose.action"
     "action/MoveJoint.action"
     # 指定依赖项 [cite: 1]

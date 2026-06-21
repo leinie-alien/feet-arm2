@@ -34,6 +34,8 @@
 #include "robot_msgs/srv/set_suction.hpp"
 #include "std_msgs/msg/bool.hpp"
 #include "std_msgs/msg/string.hpp"
+#include "std_srvs/srv/trigger.hpp"
+#include "navigation/srv/string_command.hpp"
 #include "tf2_geometry_msgs/tf2_geometry_msgs.hpp"
 #include "tf2_ros/buffer.h"
 #include "tf2_ros/transform_listener.h"
@@ -97,26 +99,26 @@ public:
     tool_tip_length_ = this->declare_parameter("task_step6.tool_tip_length", 0.0);
 
     // Place-frame parameters (狗头相机放置)
-    place_frame_hover_height_  = this->declare_parameter("task_place_frame.hover_height",   0.25);
-    place_frame_contact_offset_= this->declare_parameter("task_place_frame.contact_offset",  0.0);
-    place_frame_name_          = this->declare_parameter("task_place_frame.frame_name",      std::string("target_frame"));
-    place_frame_roll_sign_     = this->declare_parameter("task_place_frame.roll_sign",        1.0);
-    place_frame_use_mock_      = this->declare_parameter("task_place_frame.use_mock_target", false);
-    place_frame_mock_x_        = this->declare_parameter("task_place_frame.mock_x",           0.35);
-    place_frame_mock_y_        = this->declare_parameter("task_place_frame.mock_y",           0.0);
-    place_frame_mock_z_        = this->declare_parameter("task_place_frame.mock_z",           0.0);
-    place_frame_mock_yaw_      = this->declare_parameter("task_place_frame.mock_yaw",         0.0);
+    place_frame_hover_height_ = this->declare_parameter("task_place_frame.hover_height", 0.25);
+    place_frame_contact_offset_ = this->declare_parameter("task_place_frame.contact_offset", 0.0);
+    place_frame_name_ = this->declare_parameter("task_place_frame.frame_name", std::string("target_frame"));
+    place_frame_roll_sign_ = this->declare_parameter("task_place_frame.roll_sign", 1.0);
+    place_frame_use_mock_ = this->declare_parameter("task_place_frame.use_mock_target", false);
+    place_frame_mock_x_ = this->declare_parameter("task_place_frame.mock_x", 0.35);
+    place_frame_mock_y_ = this->declare_parameter("task_place_frame.mock_y", 0.0);
+    place_frame_mock_z_ = this->declare_parameter("task_place_frame.mock_z", 0.0);
+    place_frame_mock_yaw_ = this->declare_parameter("task_place_frame.mock_yaw", 0.0);
 
     // Stack parameters (箱子叠放，task_stack)
-    stack_hover_height_   = this->declare_parameter("task_stack.hover_height",    0.05);
-    stack_contact_offset_ = this->declare_parameter("task_stack.contact_offset",  0.25);
-    stack_service_name_   = this->declare_parameter("task_stack.stack_service",   std::string("get_stack_pos"));
-    stack_roll_sign_      = this->declare_parameter("task_stack.roll_sign",        1.0);
-    stack_use_mock_       = this->declare_parameter("task_stack.use_mock_target", false);
-    stack_mock_x_         = this->declare_parameter("task_stack.mock_x",           0.35);
-    stack_mock_y_         = this->declare_parameter("task_stack.mock_y",           0.0);
-    stack_mock_z_         = this->declare_parameter("task_stack.mock_z",           0.1);
-    stack_mock_yaw_       = this->declare_parameter("task_stack.mock_yaw",         0.0);
+    stack_hover_height_ = this->declare_parameter("task_stack.hover_height", 0.05);
+    stack_contact_offset_ = this->declare_parameter("task_stack.contact_offset", 0.25);
+    stack_service_name_ = this->declare_parameter("task_stack.stack_service", std::string("get_stack_pos"));
+    stack_roll_sign_ = this->declare_parameter("task_stack.roll_sign", 1.0);
+    stack_use_mock_ = this->declare_parameter("task_stack.use_mock_target", false);
+    stack_mock_x_ = this->declare_parameter("task_stack.mock_x", 0.35);
+    stack_mock_y_ = this->declare_parameter("task_stack.mock_y", 0.0);
+    stack_mock_z_ = this->declare_parameter("task_stack.mock_z", 0.1);
+    stack_mock_yaw_ = this->declare_parameter("task_stack.mock_yaw", 0.0);
 
     // Phase-2 alignment parameters
     align_threshold_ = this->declare_parameter("visual_align.align_threshold", 0.005);
@@ -168,22 +170,28 @@ public:
           }
         });
 
-    // ── Remote Control (optional) ──────────────────────────────────────────
-    remote_mode_ = this->declare_parameter("task.remote_mode", false);
-    if (remote_mode_)
-    {
-      status_pub_ = this->create_publisher<std_msgs::msg::String>("/arm/status", 10);
-      cmd_sub_ = this->create_subscription<std_msgs::msg::String>(
-          "/arm/cmd", 10,
-          [this](const std_msgs::msg::String::SharedPtr msg)
-          {
-            if (!msg) return;
-            std::lock_guard<std::mutex> lk(cmd_mutex_);
-            pending_cmd_ = msg->data;
-            cmd_cv_.notify_one();
-          });
-      RCLCPP_INFO(this->get_logger(), "Remote control mode enabled.");
-    }
+    // ── Nav Integration ────────────────────────────────────────────────────
+    // 提供 /arm/mission_event 服务：nav 到达任务点时调用，立刻回 success=true，
+    // 然后在任务线程里异步执行抓取序列
+    arm_mission_server_ = this->create_service<std_srvs::srv::Trigger>(
+        "/arm/mission_event",
+        [this](const std_srvs::srv::Trigger::Request::SharedPtr,
+               std_srvs::srv::Trigger::Response::SharedPtr response)
+        {
+          response->success = true;
+          response->message = "received";
+          RCLCPP_INFO(this->get_logger(), "[nav] Mission trigger received from navigation.");
+          std::lock_guard<std::mutex> lk(cmd_mutex_);
+          pending_trigger_ = true;
+          cmd_cv_.notify_one();
+        });
+
+    // 客户端：向 nav 回报机械臂事件（grabbed / completed）
+    nav_event_client_ = this->create_client<navigation::srv::StringCommand>(
+        "/navigation/arm_event");
+
+    RCLCPP_INFO(this->get_logger(),
+                "Nav integration ready: /arm/mission_event server + /navigation/arm_event client.");
 
     // ── Service & Action Clients ───────────────────────────────────────────
     pick_client_ = this->create_client<robot_msgs::srv::GetPickPos>("get_pick_pos");
@@ -208,13 +216,15 @@ public:
 
   void start()
   {
-    if (remote_mode_)
+    // 参数 task.manual_mode=true 时启动交互菜单，默认启动 nav 触发模式
+    const bool manual_mode = this->declare_parameter("task.manual_mode", false);
+    if (manual_mode)
     {
-      task_thread_ = std::thread(&TaskNode::run_remote_control, this);
+      task_thread_ = std::thread(&TaskNode::run_task_sequence, this);
     }
     else
     {
-      task_thread_ = std::thread(&TaskNode::run_task_sequence, this);
+      task_thread_ = std::thread(&TaskNode::run_remote_control, this);
     }
   }
 
@@ -310,10 +320,9 @@ private:
   }
 
   /**
-   * @brief 从视觉返回的 world 系 orientation 中提取箱子边缘相对于 joint_0 的 roll 偏转量。
-   *        R = [U | V | normal]，U 轴为箱子主边方向。tf2::doTransform 将 Pose 转到 world 系后，
-   *        四元数第一列即为 U 轴在 world 的方向。利用矩形 180° 对称性归一化到 [-π/2, π/2]。
-   *        若 orientation 为 identity（手动输入或视觉未提供朝向），返回 0。
+   * @brief 从视觉返回的 world 系 orientation 中提取箱子边缘 roll（无副作用，纯计算）。
+   *        180° 对称归一化到 [-π/2, π/2]；90° 对称选绝对值更小的等效角。
+   *        连续性滤波由调用方负责（避免多次采样时互相污染）。
    */
   double get_box_edge_roll(const geometry_msgs::msg::Pose &world_pose)
   {
@@ -328,23 +337,35 @@ private:
 
     const double ux = 1.0 - 2.0 * (q.y * q.y + q.z * q.z);
     const double uy = 2.0 * (q.x * q.y + q.z * q.w);
-    const double edge_yaw = std::atan2(uy, ux);
+    const double alpha = std::atan2(uy, ux);
 
+    // 从4个等效方向中选落在 [-π/2, 0]（第四象限）的那个
+    double chosen = alpha;
+    for (int k = 0; k < 4; ++k)
+    {
+      const double candidate = normalize_angle(alpha + k * M_PI / 2.0);
+      if (candidate >= -M_PI / 2.0 - 1e-9 && candidate <= 1e-9)
+      {
+        chosen = candidate;
+        break;
+      }
+    }
+
+    // edge_yaw = 选中方向离 -90° 轴的正值夹角，范围 [0, π/2]
+    const double edge_yaw = chosen + M_PI / 2.0;
     const double base_yaw = std::atan2(world_pose.position.y, world_pose.position.x);
-    double roll = normalize_angle(edge_yaw - base_yaw);
-
-    // 矩形 180° 对称：u 和 -u 等效
-    if (roll >  M_PI / 2.0) roll -= M_PI;
-    if (roll < -M_PI / 2.0) roll += M_PI;
-
-    // 矩形 90° 对称：视觉可能返回 axis_u 也可能返回 axis_v（相差90°），
-    // 两条边对吸盘都等效，选转角绝对值更小的那条边，将 roll 范围收窄到 [-π/4, π/4]
-    const double roll_alt = (roll >= 0.0) ? (roll - M_PI / 2.0) : (roll + M_PI / 2.0);
-    if (std::abs(roll_alt) < std::abs(roll)) roll = roll_alt;
+    const double roll = normalize_angle(base_yaw - edge_yaw);
 
     RCLCPP_INFO(this->get_logger(),
-                "[box_edge_roll] edge_yaw=%.3f base_yaw=%.3f roll=%.3f rad",
-                edge_yaw, base_yaw, roll);
+                "[box_edge_roll] alpha=%.3f chosen=%.3f edge_yaw=%.3f base_yaw=%.3f roll=%.3f rad (%.1f deg)",
+                alpha, chosen, edge_yaw, base_yaw, roll, roll * 180.0 / M_PI);
+    return roll;
+  }
+
+  // 记录上次 roll 用于调试，不做翻转
+  double apply_roll_continuity(double roll)
+  {
+    last_grasp_roll_ = roll;
     return roll;
   }
 
@@ -558,7 +579,6 @@ private:
     }
   }
 
-
   bool call_place_service_sync(const std::string &frame_name,
                                geometry_msgs::msg::Pose *out_pose)
   {
@@ -692,12 +712,15 @@ private:
         place_frame_roll_sign_ * (frame_yaw - joint0_ik));
 
     // 矩形 180° 对称：归一化到 [-π/2, π/2]
-    if (tool_roll >  M_PI / 2.0) tool_roll -= M_PI;
-    if (tool_roll < -M_PI / 2.0) tool_roll += M_PI;
+    if (tool_roll > M_PI / 2.0)
+      tool_roll -= M_PI;
+    if (tool_roll < -M_PI / 2.0)
+      tool_roll += M_PI;
 
     // 矩形 90° 对称：视觉可能返回 axis_u 也可能返回 axis_v（相差90°），选转角绝对值更小的边
     const double roll_alt = (tool_roll >= 0.0) ? (tool_roll - M_PI / 2.0) : (tool_roll + M_PI / 2.0);
-    if (std::abs(roll_alt) < std::abs(tool_roll)) tool_roll = roll_alt;
+    if (std::abs(roll_alt) < std::abs(tool_roll))
+      tool_roll = roll_alt;
 
     RCLCPP_INFO(this->get_logger(),
                 "[get_frame_yaw] frame_yaw=%.3f joint0_ik=%.3f tool_roll=%.3f",
@@ -737,7 +760,7 @@ private:
                    ee_target.x(), ee_target.y(), ee_target.z());
       return false;
     }
-    q_pre[0]   += tool_yaw_offset_;
+    q_pre[0] += tool_yaw_offset_;
     q_place[0] += tool_yaw_offset_;
 
     if (!send_move_goal(std::vector<Eigen::VectorXd>{q_pre, q_place}))
@@ -790,13 +813,12 @@ private:
   bool do_stack_move_with_orientation(const geometry_msgs::msg::Pose &box_top_world)
   {
     const double tool_roll =
-        normalize_angle(stack_roll_sign_ * (
-            std::atan2(
-                2.0 * (box_top_world.orientation.w * box_top_world.orientation.z +
-                       box_top_world.orientation.x * box_top_world.orientation.y),
-                1.0 - 2.0 * (box_top_world.orientation.y * box_top_world.orientation.y +
-                             box_top_world.orientation.z * box_top_world.orientation.z))
-            - std::atan2(box_top_world.position.y, box_top_world.position.x)));
+        normalize_angle(stack_roll_sign_ * (std::atan2(
+                                                2.0 * (box_top_world.orientation.w * box_top_world.orientation.z +
+                                                       box_top_world.orientation.x * box_top_world.orientation.y),
+                                                1.0 - 2.0 * (box_top_world.orientation.y * box_top_world.orientation.y +
+                                                             box_top_world.orientation.z * box_top_world.orientation.z)) -
+                                            std::atan2(box_top_world.position.y, box_top_world.position.x)));
 
     const double pitch = grasp_pitch_ + tool_pitch_offset_;
 
@@ -827,7 +849,7 @@ private:
                    ee_target.x(), ee_target.y(), ee_target.z());
       return false;
     }
-    q_pre[0]   += tool_yaw_offset_;
+    q_pre[0] += tool_yaw_offset_;
     q_stack[0] += tool_yaw_offset_;
 
     if (!send_move_goal(std::vector<Eigen::VectorXd>{q_pre, q_stack}))
@@ -1365,8 +1387,56 @@ private:
     do_look_out(target);
     wait_joints_still(0.02, 800);
 
-    const double roll = get_box_edge_roll(target);
-    if (!do_grasp_move(target, roll))
+    // 多次感知取中位数：消除视觉返回不同等效边导致的 roll 跳变
+    constexpr int N = 3;
+    std::vector<geometry_msgs::msg::Pose> samples;
+    for (int i = 0; i < N; ++i)
+    {
+      geometry_msgs::msg::Pose p;
+      if (call_pick_service_sync(step6_pick_object_name_, &p))
+        samples.push_back(p);
+      else
+        RCLCPP_WARN(this->get_logger(), "[grasp_aligned] sample %d/%d failed", i + 1, N);
+    }
+
+    geometry_msgs::msg::Pose refined = target;
+    double roll = get_box_edge_roll(target);
+
+    if (!samples.empty())
+    {
+      std::vector<double> xs, ys, zs, rolls;
+      for (const auto &s : samples)
+      {
+        xs.push_back(s.position.x);
+        ys.push_back(s.position.y);
+        zs.push_back(s.position.z);
+        rolls.push_back(get_box_edge_roll(s));
+      }
+      std::sort(xs.begin(), xs.end());
+      std::sort(ys.begin(), ys.end());
+      std::sort(zs.begin(), zs.end());
+      std::sort(rolls.begin(), rolls.end());
+      const int m = xs.size() / 2;
+      refined = samples[m];
+      refined.position.x = xs[m];
+      refined.position.y = ys[m];
+      refined.position.z = zs[m];
+      roll = rolls[rolls.size() / 2];
+
+      // 对中位数结果应用连续性滤波（只在最终结果上调用一次，避免采样间互相污染）
+      roll = apply_roll_continuity(roll);
+
+      RCLCPP_INFO(this->get_logger(),
+                  "[grasp_aligned] %zu samples, median pos=(%.3f,%.3f,%.3f) roll=%.3f rad (%.1f deg)",
+                  samples.size(), refined.position.x, refined.position.y, refined.position.z,
+                  roll, roll * 180.0 / M_PI);
+    }
+    else
+    {
+      RCLCPP_WARN(this->get_logger(), "[grasp_aligned] all perception failed, using 1st result");
+    }
+
+    if (!do_grasp_move(refined, roll))
     {
       return false;
     }
@@ -1732,13 +1802,29 @@ private:
   // SECTION 5 — Remote Control (外部节点通过 /arm/cmd 控制)
   // ═══════════════════════════════════════════════════════════════════════════
 
-  void publish_status(const std::string &s)
+  // 向 nav 发送机械臂事件，仅发送 "grabbed" 或 "completed"
+  void send_nav_event(const std::string &event)
   {
-    if (!status_pub_) return;
-    std_msgs::msg::String msg;
-    msg.data = s;
-    status_pub_->publish(msg);
-    RCLCPP_INFO(this->get_logger(), "[remote] status → \"%s\"", s.c_str());
+    if (!nav_event_client_->wait_for_service(std::chrono::seconds(1)))
+    {
+      RCLCPP_WARN(this->get_logger(),
+                  "[nav] /navigation/arm_event service unavailable, dropping event: %s", event.c_str());
+      return;
+    }
+    auto req = std::make_shared<navigation::srv::StringCommand::Request>();
+    req->message = event;
+    auto future = nav_event_client_->async_send_request(req);
+    if (future.wait_for(std::chrono::seconds(2)) != std::future_status::ready)
+    {
+      RCLCPP_WARN(this->get_logger(), "[nav] arm_event \"%s\" timed out.", event.c_str());
+      return;
+    }
+    auto resp = future.get();
+    if (resp->success)
+      RCLCPP_INFO(this->get_logger(), "[nav] arm_event \"%s\" acknowledged.", event.c_str());
+    else
+      RCLCPP_WARN(this->get_logger(), "[nav] arm_event \"%s\" rejected: %s",
+                  event.c_str(), resp->message.c_str());
   }
 
   /**
@@ -1761,39 +1847,38 @@ private:
 
     if (!call_pick_service_sync(step6_pick_object_name_, &target))
     {
-      publish_status("error:perception_failed");
+      RCLCPP_ERROR(this->get_logger(), "[grasp] Perception failed.");
       return false;
     }
 
     if (!do_full_grasp_aligned(target))
     {
-      publish_status("error:grasp_failed");
+      RCLCPP_ERROR(this->get_logger(), "[grasp] Grasp failed.");
       return false;
     }
 
     rclcpp::sleep_for(500ms);
-    publish_status("grasped");
+    // 通知 nav：已抓取。若 mission_resume_event=grabbed，nav 此时继续行走
+    send_nav_event("grabbed");
 
-    // carry：moving → carry preset → loaded
+    // 归位到 carry 姿态，机器人可以安全行走
     if (!request_mode_switch("moving"))
     {
-      publish_status("error:mode_switch_failed");
       return false;
     }
     if (!presets_.count("carry"))
     {
-      RCLCPP_ERROR(this->get_logger(), "[remote] Preset 'carry' not found!");
-      publish_status("error:no_carry_preset");
+      RCLCPP_ERROR(this->get_logger(), "[grasp] Preset 'carry' not found!");
       return false;
     }
     if (!send_move_goal({presets_["carry"]}) || !wait_for_action_completion())
     {
-      publish_status("error:carry_failed");
       return false;
     }
     request_mode_switch("loaded");
 
-    publish_status("stowed");
+    // 通知 nav：已归位，机器人可以安全行走。若 mission_resume_event=completed，nav 此时继续
+    send_nav_event("completed");
     return true;
   }
 
@@ -1808,21 +1893,23 @@ private:
 
     if (!call_place_service_sync(place_frame_name_, &frame_pose))
     {
-      publish_status("error:place_perception_failed");
+      RCLCPP_ERROR(this->get_logger(), "[place] Place perception failed.");
       return false;
     }
 
     request_mode_switch("moving");
     if (!do_place_move_with_orientation(frame_pose))
     {
-      publish_status("error:place_failed");
+      RCLCPP_ERROR(this->get_logger(), "[place] Place move failed.");
       return false;
     }
 
-    publish_status("placed");
+    // TODO: 当 nav 支持放置任务点时，在这里发送适当的事件
+    // 例如: send_nav_event("grabbed");  // 放下物体后立刻通知 nav
+    // 或:   send_nav_event("completed"); // 臂复位后再通知 nav
 
     do_reset();
-    publish_status("reset");
+    // send_nav_event("completed");  // 取消注释以启用放置完成通知
     return true;
   }
 
@@ -1837,43 +1924,50 @@ private:
     {
       return;
     }
-    RCLCPP_INFO(this->get_logger(), "[remote] Ready. Performing initial reset...");
-    do_reset();
-    publish_status("reset");
-    RCLCPP_INFO(this->get_logger(), "[remote] Waiting for commands on /arm/cmd ...");
+    RCLCPP_INFO(this->get_logger(), "[nav] Ready. Waiting for /arm/mission_event triggers...");
 
     while (rclcpp::ok() && is_running_.load())
     {
-      std::string cmd;
       {
         std::unique_lock<std::mutex> lk(cmd_mutex_);
         cmd_cv_.wait_for(lk, std::chrono::milliseconds(200),
-                         [this] { return !pending_cmd_.empty(); });
-        if (pending_cmd_.empty()) continue;
-        cmd = pending_cmd_;
-        pending_cmd_.clear();
+                         [this]
+                         { return pending_trigger_; });
+        if (!pending_trigger_)
+          continue;
+        pending_trigger_ = false;
       }
 
       if (remote_busy_.exchange(true))
       {
-        publish_status("error:busy");
+        RCLCPP_WARN(this->get_logger(), "[nav] Trigger received but arm is busy, ignoring.");
         continue;
       }
 
-      if (cmd == "grasp")
+      // 根据状态机决定执行抓取还是放置
+      const auto current_state = state_;
+      if (current_state == arm2_task::TaskState::IDLE)
       {
-        RCLCPP_INFO(this->get_logger(), "[remote] Executing grasp sequence...");
-        do_grasp_sequence();
+        RCLCPP_INFO(this->get_logger(), "[nav] Executing grasp sequence...");
+        if (do_grasp_sequence())
+        {
+          state_ = arm2_task::TaskState::HOLDING;
+        }
       }
-      else if (cmd == "place")
+      else if (current_state == arm2_task::TaskState::HOLDING)
       {
-        RCLCPP_INFO(this->get_logger(), "[remote] Executing place sequence...");
-        do_place_sequence();
+        // TODO: 当 nav 支持放置任务点时，取消注释并实现放置通讯
+        // RCLCPP_INFO(this->get_logger(), "[nav] Executing place sequence...");
+        // if (do_place_sequence())
+        // {
+        //   state_ = arm2_task::TaskState::IDLE;
+        // }
+        RCLCPP_WARN(this->get_logger(), "[nav] Place sequence not yet wired to nav. Ignoring trigger.");
       }
       else
       {
-        RCLCPP_WARN(this->get_logger(), "[remote] Unknown command: %s", cmd.c_str());
-        publish_status("error:unknown_cmd:" + cmd);
+        RCLCPP_WARN(this->get_logger(), "[nav] Unexpected state %d on trigger, ignoring.",
+                    static_cast<int>(current_state));
       }
 
       remote_busy_.store(false);
@@ -2285,7 +2379,7 @@ private:
   double place_frame_contact_offset_{0.0};
   std::string place_frame_name_{"target_frame"};
   double place_frame_roll_sign_{1.0};
-  bool   place_frame_use_mock_{false};
+  bool place_frame_use_mock_{false};
   double place_frame_mock_x_{0.35};
   double place_frame_mock_y_{0.0};
   double place_frame_mock_z_{0.0};
@@ -2296,7 +2390,7 @@ private:
   double stack_contact_offset_{0.25};
   std::string stack_service_name_{"get_stack_pos"};
   double stack_roll_sign_{1.0};
-  bool   stack_use_mock_{false};
+  bool stack_use_mock_{false};
   double stack_mock_x_{0.35};
   double stack_mock_y_{0.0};
   double stack_mock_z_{0.1};
@@ -2305,6 +2399,9 @@ private:
   // Phase-2 alignment parameters
   double align_threshold_{0.005}; // 5 mm
   int align_max_iters_{5};
+
+  // Grasp roll continuity filter
+  double last_grasp_roll_{std::numeric_limits<double>::quiet_NaN()};
 
   // Payload estimation
   float last_estimated_mass_{0.0f};
@@ -2333,14 +2430,13 @@ private:
   rclcpp::Client<robot_msgs::srv::GetPayloadEstimate>::SharedPtr payload_client_;
   rclcpp_action::Client<MoveJoint>::SharedPtr move_joint_client_;
 
-  // Remote control
-  bool remote_mode_{false};
+  // Nav integration
   std::atomic<bool> remote_busy_{false};
-  rclcpp::Publisher<std_msgs::msg::String>::SharedPtr status_pub_;
-  rclcpp::Subscription<std_msgs::msg::String>::SharedPtr cmd_sub_;
+  rclcpp::Service<std_srvs::srv::Trigger>::SharedPtr arm_mission_server_;
+  rclcpp::Client<navigation::srv::StringCommand>::SharedPtr nav_event_client_;
   std::mutex cmd_mutex_;
   std::condition_variable cmd_cv_;
-  std::string pending_cmd_;
+  bool pending_trigger_{false};
 
   // Thread
   std::atomic<bool> is_running_{true};
