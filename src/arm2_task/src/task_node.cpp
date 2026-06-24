@@ -339,21 +339,21 @@ private:
     const double uy = 2.0 * (q.x * q.y + q.z * q.w);
     const double alpha = std::atan2(uy, ux);
 
-    // 从4个等效方向中选落在 [-π, -π/2]（第三象限，180°~270°）的那个
+    // 从4个等效方向中选落在 [-π/2, 0]（第四象限）的那个
     double chosen = alpha;
     for (int k = 0; k < 4; ++k)
     {
       const double candidate = normalize_angle(alpha + k * M_PI / 2.0);
-      if (candidate >= -M_PI - 1e-9 && candidate <= -M_PI / 2.0 + 1e-9)
+      if (candidate >= -M_PI / 2.0 - 1e-9 && candidate <= 1e-9)
       {
         chosen = candidate;
         break;
       }
     }
 
-    // edge_yaw = 选中方向离 -180° 轴的正值夹角，范围 [0, π/2]
-    const double edge_yaw = chosen + M_PI;
-    const double base_yaw = std::atan2(world_pose.position.y, world_pose.position.x) + M_PI / 2.0;
+    // edge_yaw = 选中方向离 -90° 轴的正值夹角，范围 [0, π/2]
+    const double edge_yaw = chosen + M_PI / 2.0;
+    const double base_yaw = std::atan2(world_pose.position.y, world_pose.position.x);
     const double roll = normalize_angle(base_yaw - edge_yaw);
 
     RCLCPP_INFO(this->get_logger(),
@@ -713,21 +713,21 @@ private:
     const double uy = 2.0 * (q.x * q.y + q.z * q.w);
     const double alpha = std::atan2(uy, ux);
 
-    // 从4个等效方向中选落在 [-π, -π/2]（第三象限）的那个
+    // 从4个等效方向中选落在 [-π/2, 0]（第四象限）的那个
     double chosen = alpha;
     for (int k = 0; k < 4; ++k)
     {
       const double candidate = normalize_angle(alpha + k * M_PI / 2.0);
-      if (candidate >= -M_PI - 1e-9 && candidate <= -M_PI / 2.0 + 1e-9)
+      if (candidate >= -M_PI / 2.0 - 1e-9 && candidate <= 1e-9)
       {
         chosen = candidate;
         break;
       }
     }
 
-    // edge_yaw = 选中方向离 -180° 轴的正值夹角，范围 [0, π/2]
-    const double edge_yaw = chosen + M_PI;
-    const double base_yaw = std::atan2(frame_world.position.y, frame_world.position.x) + M_PI / 2.0;
+    // edge_yaw = 选中方向离 -90° 轴的正值夹角，范围 [0, π/2]
+    const double edge_yaw = chosen + M_PI / 2.0;
+    const double base_yaw = std::atan2(frame_world.position.y, frame_world.position.x);
     const double tool_roll = normalize_angle(base_yaw - edge_yaw);
 
     RCLCPP_INFO(this->get_logger(),
