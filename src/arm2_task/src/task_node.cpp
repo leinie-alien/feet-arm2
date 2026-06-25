@@ -1136,7 +1136,7 @@ private:
     {
       wait_for_action_completion();
     }
-    request_mode_switch("idle");
+    request_mode_switch("moving");
   }
 
   /** 带吸盘复位（不关吸盘）：moving → reset → idle */
