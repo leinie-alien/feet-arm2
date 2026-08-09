@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-ROOT_DIR="/home/primarymage/WorkFile/esp_ws"
+# 默认从环境变量 ESP_WS 读取，未设置则回退到 $HOME/esp_ws
+ROOT_DIR="${ESP_WS:-$HOME/esp_ws}"
 WS_DIR="${ROOT_DIR}/ros2_suction_ws"
 SERVICE_NAME="${1:-set_suction}"
 ROS_DOMAIN_ID_VALUE="${2:-0}"

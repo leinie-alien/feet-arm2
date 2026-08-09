@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-WS_DIR="/home/zyy/task/arm/feet-arm2-main"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+WS_DIR="$(cd "$SCRIPT_DIR/../.." && pwd)"
 SERIAL_PORT="${1:-/dev/esp32_suction_c3}"
 SERVICE_NAME="${2:-set_suction}"
 SERVER_PID=""

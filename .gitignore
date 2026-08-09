@@ -66,3 +66,16 @@ htmlcov/
 *.zip
 *.tar
 *.gz
+
+# =========================
+# 第三方 SDK / 预编译库
+# =========================
+src/DM_DeviceSDK/
+src/dm_motor_sdk_ros/third_party/
+
+# =========================
+# Claude / AI 工具
+# =========================
+.claude/
+CLAUDE.md
+claude.md

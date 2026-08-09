@@ -139,8 +139,8 @@
 
 | 服务名 | 提供方 | 说明 |
 |---|---|---|
-| `get_pick_pos` | 手臂相机节点（`/home/zyy/task/arm/camera`） | 返回箱子在 `camera_link` 系的位姿 |
-| `get_place_pos` | 狗头相机节点（`/home/zyy/task/arm/head_camera`） | 返回放置框在 `dog_camera_link` 系的位姿 |
+| `get_pick_pos` | 手臂相机节点（neweyes workspace） | 返回箱子在 `camera_link` 系的位姿 |
+| `get_place_pos` | 狗头相机节点（neweyes workspace） | 返回放置框在 `dog_camera_link` 系的位姿 |
 | `set_suction` | 吸盘控制节点 | 吸盘开关 |
 
 > 这些服务由机械臂节点内部调用，外部控制节点**不需要**直接对接。
