@@ -482,19 +482,11 @@ task_stack.use_mock_target: true       # Case 14 用 mock 坐标
 
 `params.yaml` 中的外参 `pos/quat` 直接影响 world 坐标计算精度。如果外参未经实测标定，所有视觉引导操作都会有系统性误差。
 
-### 4. 配置参数冲突
-
-`task_params.yaml` 和 `params.yaml` 中部分参数值不同（如 `tool_offset_z`：0.18 vs -0.10），`run_arm.sh` 实际加载 `task_params.yaml`。修改参数时注意确认加载的是哪个文件。
-
-### 5. 未实现的功能
+### 4. 未实现的功能
 
 - `teach_drag_record_node` — 启动文件存在但源码缺失
 - `MoveToPose.action` — 接口已定义但无节点使用
 - `/arm/cmd` + `/arm/status` — ARM_INTERFACE.md 中描述但未实现
 - 导航放置路径 — `run_remote_control()` 中 HOLDING → 放置分支被注释
-
-### 6. 坐标变换正确性
-
-`task_node.cpp` 的 TF2 变换写法正确：直接读取 `frame_id`，让 TF2 做 `lookupTransform` → `doTransform`。只要 frame_id 填对了、TF 链存在，结果就是正确的。
 
 ---

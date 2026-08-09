@@ -108,7 +108,7 @@
       pre_grasp_offset:   0.10    # 预抓取悬停高度偏移 (m)
       tool_offset_x:      0.0    # 工具坐标系偏移0.02 0.05
       tool_offset_y:      0.0
-      tool_offset_z:      -0.10   # 工具坐标系偏移（补偿 base_link Z=0.38m 偏置）  之前是-0.17
+      tool_offset_z:      0.18    # 工具坐标系偏移（补偿 base_link Z=0.38m 偏置）
       tool_tip_length:    0.0     # 吸盘接触面到 Link_5 origin 的距离 (m)，沿末端方向补偿
       pick_object_name:  "box"    # 传给 get_pick_pos 服务的物体名
       use_mock_target:    false   # true 时 case6 用固定坐标（调试用）
