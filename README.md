@@ -23,7 +23,6 @@
 - [启动文件说明](#启动文件说明)
 - [调试工具](#调试工具)
 - [已知问题与经验](#已知问题与经验)
-- [TODO](#todo)
 
 ---
 
@@ -499,15 +498,3 @@ task_stack.use_mock_target: true       # Case 14 用 mock 坐标
 `task_node.cpp` 的 TF2 变换写法正确：直接读取 `frame_id`，让 TF2 做 `lookupTransform` → `doTransform`。只要 frame_id 填对了、TF 链存在，结果就是正确的。
 
 ---
-
-## TODO
-
-- [ ] 修改 Case 1 的 PD 参数，提高稳定性
-- [ ] 让机械臂绕开固定位置
-- [ ] 修改偏放逻辑
-- [ ] 完善气泵控制
-- [ ] 实现 `get_place_pos` 感知节点
-- [ ] 实现 `get_stack_pos` 感知节点（复用 get_place_pos 改 3 行）
-- [ ] 实现 `teach_drag_record_node` 拖拽轨迹录制
-- [ ] 完成导航放置路径的接入
-- [ ] 统一 `task_params.yaml` 和 `params.yaml` 中的冲突参数
