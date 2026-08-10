@@ -2,11 +2,12 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+WS_DIR="$(cd "$SCRIPT_DIR/../.." && pwd)"
 ROS_SETUP="/opt/ros/humble/setup.bash"
-WS_SETUP="$SCRIPT_DIR/install/setup.bash"
+WS_SETUP="$WS_DIR/install/setup.bash"
 
-DEFAULT_ARM_PARAMS_FILE="$SCRIPT_DIR/src/arm2_task/config/params.yaml"
-DEFAULT_DRIVER_PARAMS_FILE="$SCRIPT_DIR/src/dm_motor_sdk_ros/config/dm_motor_robot_driver.yaml"
+DEFAULT_ARM_PARAMS_FILE="$WS_DIR/src/arm2_task/config/params.yaml"
+DEFAULT_DRIVER_PARAMS_FILE="$WS_DIR/src/dm_motor_sdk_ros/config/dm_motor_robot_driver.yaml"
 
 ARM_PARAMS_FILE="$DEFAULT_ARM_PARAMS_FILE"
 DRIVER_PARAMS_FILE="$DEFAULT_DRIVER_PARAMS_FILE"
@@ -225,14 +226,14 @@ fi
 
 trap cleanup EXIT INT TERM
 
-cd "${SCRIPT_DIR}"
+cd "${WS_DIR}"
 
 source_setup "${ROS_SETUP}"
 source_setup "${WS_SETUP}"
 record_existing_ros2_daemons
 
-assert_binary_runnable "${SCRIPT_DIR}/install/dm_motor_sdk_ros/lib/dm_motor_sdk_ros/dm_motor_robot_driver_node" "dm_motor_robot_driver_node"
-assert_binary_runnable "${SCRIPT_DIR}/install/arm2_task/lib/arm2_task/inverse_dynamics_node" "inverse_dynamics_node"
+assert_binary_runnable "${WS_DIR}/install/dm_motor_sdk_ros/lib/dm_motor_sdk_ros/dm_motor_robot_driver_node" "dm_motor_robot_driver_node"
+assert_binary_runnable "${WS_DIR}/install/arm2_task/lib/arm2_task/inverse_dynamics_node" "inverse_dynamics_node"
 
 echo "[INFO] arm2_task params: ${ARM_PARAMS_FILE}"
 echo "[INFO] driver params: ${DRIVER_PARAMS_FILE}"

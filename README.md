@@ -116,8 +116,8 @@ feet-arm2/
 │   └── remote_control_test/          # 远程控制测试工具（设计文档）
 └── src/
     ├── robot_msgs/                   # 自定义消息/服务/动作接口
-    ├── arm2_task/                    # 主控包（10 个可执行文件）
-    │   ├── config/                   # 参数文件（3 套）
+    ├── arm2_task/                    # 主控包（8 个可执行文件）
+    │   ├── config/                   # 唯一的参数文件
     │   ├── launch/                   # 启动文件（6 个）
     │   ├── include/arm2_task/        # 头文件（运动学/动力学/状态机）
     │   ├── src/                      # 源码
@@ -125,7 +125,7 @@ feet-arm2/
     ├── dm_motor_sdk_ros/             # 达妙电机 ROS2 驱动
     ├── suction_serial_bridge/        # 吸盘串口桥接
     ├── ftservo_hls3625_teach/        # 示教器包
-    └── DM_DeviceSDK/                 # 达妙官方 SDK（第三方，需自行下载）
+    └── DM_DeviceSDK/                 # 达妙官方 SDK（第三方，需自行下载，见下方说明）
 ```
 
 ---
@@ -139,7 +139,7 @@ feet-arm2/
 | 编译器 | GCC 支持 C++17 |
 | Pinocchio | 刚体动力学库（`apt install ros-humble-pinocchio`） |
 | navigation | 外部导航包（`find_package(navigation REQUIRED)`） |
-| 达妙 SDK | 放入 `src/dm_motor_sdk_ros/third_party/` 和 `src/DM_DeviceSDK/` |
+| 达妙 SDK | 需从达妙官方获取，放入 `src/dm_motor_sdk_ros/third_party/`（含 `libdm_device.so` 和 udev 规则）以及 `src/DM_DeviceSDK/`（含 C/C++ SDK 头文件） |
 
 ---
 
@@ -150,7 +150,7 @@ cd feet-arm2
 source /opt/ros/humble/setup.bash
 
 # 可选：source 导航工作区
-source ~/task/nav_ws/install/setup.bash
+source <your_nav_ws>/install/setup.bash
 
 # 完整编译
 colcon build --packages-select robot_msgs suction_serial_bridge dm_motor_sdk_ros arm2_task \

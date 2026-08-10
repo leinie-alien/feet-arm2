@@ -3,7 +3,7 @@
   <name>suction_serial_bridge</name>
   <version>0.1.0</version>
   <description>ROS 2 Humble service bridge for controlling suction via an ESP32-C3 over serial.</description>
-  <maintainer email="primarymage@example.com">primarymage</maintainer>
+  <maintainer email="maintainer@example.com">maintainer</maintainer>
   <license>MIT</license>
 
   <buildtool_depend>ament_cmake</buildtool_depend>

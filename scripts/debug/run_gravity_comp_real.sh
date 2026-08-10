@@ -2,10 +2,11 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+WS_DIR="$(cd "$SCRIPT_DIR/../.." && pwd)"
 ROS_SETUP="/opt/ros/humble/setup.bash"
-WS_SETUP="$SCRIPT_DIR/install/setup.bash"
-DEFAULT_PARAMS_FILE="$SCRIPT_DIR/src/arm2_task/config/params.yaml"
-DEFAULT_DRIVER_PARAMS_FILE="$SCRIPT_DIR/src/dm_motor_sdk_ros/config/dm_motor_robot_driver.yaml"
+WS_SETUP="$WS_DIR/install/setup.bash"
+DEFAULT_PARAMS_FILE="$WS_DIR/src/arm2_task/config/params.yaml"
+DEFAULT_DRIVER_PARAMS_FILE="$WS_DIR/src/dm_motor_sdk_ros/config/dm_motor_robot_driver.yaml"
 
 PARAMS_FILE="$DEFAULT_PARAMS_FILE"
 DRIVER_PARAMS_FILE="$DEFAULT_DRIVER_PARAMS_FILE"
@@ -209,7 +210,7 @@ fi
 
 trap cleanup EXIT INT TERM
 
-cd "${SCRIPT_DIR}"
+cd "${WS_DIR}"
 
 source_setup "${ROS_SETUP}"
 source_setup "${WS_SETUP}"

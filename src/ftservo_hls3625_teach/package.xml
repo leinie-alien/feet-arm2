@@ -3,7 +3,7 @@
   <name>ftservo_hls3625_teach</name>
   <version>0.1.0</version>
   <description>Self-contained minimal ROS 2 teaching package for FEETECH HLS3625 bus servos.</description>
-  <maintainer email="primarymage@example.com">primarymage</maintainer>
+  <maintainer email="maintainer@example.com">maintainer</maintainer>
   <license>MIT</license>
 
   <buildtool_depend>ament_cmake</buildtool_depend>

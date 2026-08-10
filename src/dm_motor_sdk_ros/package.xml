@@ -4,8 +4,8 @@
   <version>0.0.2</version>
   <description>Minimal ROS2 package using DM USB2CANFD_Dual SDK with dm_motor protocol layer.</description>
 
-  <maintainer email="you@example.com">you</maintainer>
-  <license>Proprietary</license>
+  <maintainer email="maintainer@example.com">maintainer</maintainer>
+  <license>MIT</license>
 
   <buildtool_depend>ament_cmake</buildtool_depend>
 

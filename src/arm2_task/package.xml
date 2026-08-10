@@ -4,8 +4,8 @@
   <name>arm2_task</name>
   <version>0.0.0</version>
   <description>Arm control task package independent of simulation</description>
-  <maintainer email="3188195224@qq.com">primarymage</maintainer>
-  <license>TODO: License declaration</license>
+  <maintainer email="maintainer@example.com">maintainer</maintainer>
+  <license>MIT</license>
 
   <buildtool_depend>ament_cmake</buildtool_depend>
 
