@@ -10,8 +10,8 @@ from launch_ros.actions import Node
 def generate_launch_description():
     package_name = "arm2_task"
     pkg_share = get_package_share_directory(package_name)
-    default_control_params = os.path.join(pkg_share, "config", "control_params.yaml")
-    default_task_params = os.path.join(pkg_share, "config", "task_params.yaml")
+    default_control_params = os.path.join(pkg_share, "config", "params.yaml")
+    default_task_params = os.path.join(pkg_share, "config", "params.yaml")
 
     control_params_arg = DeclareLaunchArgument(
         "control_params_path",

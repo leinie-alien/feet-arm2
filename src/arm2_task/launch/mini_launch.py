@@ -11,8 +11,8 @@ def generate_launch_description():
     pkg_share = get_package_share_directory(package_name)
 
     # 2. 定义可配置的参数路径 (可以通过 ros2 launch ... params_path:=/new/path 修改)
-    default_control_params = os.path.join(pkg_share, 'config', 'control_params.yaml')
-    default_task_params = os.path.join(pkg_share, 'config', 'task_params.yaml')
+    default_control_params = os.path.join(pkg_share, 'config', 'params.yaml')
+    default_task_params = os.path.join(pkg_share, 'config', 'params.yaml')
 
     control_params_arg = DeclareLaunchArgument(
         'control_params_path',

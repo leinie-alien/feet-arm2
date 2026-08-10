@@ -366,9 +366,7 @@ world（= arm_base_link）
 
 | 文件 | 用途 |
 |---|---|
-| `src/arm2_task/config/params.yaml` | **完整参数**（215 行）：外参、摩擦、6 组增益、负载、预设、几何、轨迹、任务、逆动力学 |
-| `src/arm2_task/config/control_params.yaml` | control_node 子集参数 |
-| `src/arm2_task/config/task_params.yaml` | task_node 子集参数（`run_arm.sh` 实际使用） |
+| `src/arm2_task/config/params.yaml` | **唯一参数文件**：外参、摩擦、6 组增益、负载、预设、几何、轨迹、任务、逆动力学 |
 | `src/dm_motor_sdk_ros/config/dm_motor_robot_driver.yaml` | 驱动参数：CAN 参数、电机 ID、零位、限位、跳变阈值 |
 
 ### 关键参数说明
