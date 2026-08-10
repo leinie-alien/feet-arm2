@@ -1,0 +1,36 @@
+# Auto-detect text files, normalize line endings to LF on commit
+* text=auto
+
+# Shell scripts must use LF
+*.sh text eol=lf
+
+# Python
+*.py text eol=lf
+
+# YAML
+*.yaml text eol=lf
+*.yml text eol=lf
+
+# C++ source
+*.cpp text eol=lf
+*.hpp text eol=lf
+*.h text eol=lf
+*.c text eol=lf
+
+# CMake
+CMakeLists.txt text eol=lf
+*.cmake text eol=lf
+
+# ROS2
+*.srv text eol=lf
+*.msg text eol=lf
+*.action text eol=lf
+*.launch.py text eol=lf
+*.urdf text eol=lf
+
+# Binary files
+*.so binary
+*.a binary
+*.png binary
+*.jpg binary
+*.pdf binary

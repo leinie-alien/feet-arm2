@@ -1,6 +1,10 @@
 #!/usr/bin/env python3
 """
-arm_controller.py — 机械臂远程控制测试节点
+arm_controller.py — 机械臂远程控制测试节点（待更新）
+
+⚠️ 此脚本基于旧版话题接口（/arm/cmd + /arm/status）编写。
+   当前版本的外部接口已改为服务调用（/arm/mission_event），
+   详见 ARM_INTERFACE.md。
 
 用法：
   # 1. 先把 params.yaml 里 task.remote_mode 改为 true 再启动机械臂

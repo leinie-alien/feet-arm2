@@ -1,5 +1,9 @@
 import os
 
+# ⚠️ 注意：teach_drag_record_node 源码尚未实现，此 launch 文件暂时无法使用。
+# 拖拽示教功能当前仅 teah_drag 控制模式可用（切换后手拖机械臂），
+# 轨迹录制和回放功能待开发。
+
 from ament_index_python.packages import get_package_share_directory
 from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument
