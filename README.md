@@ -483,7 +483,6 @@ task_stack.use_mock_target: true       # Case 14 用 mock 坐标
 ### 4. 未实现的功能
 
 - `teach_drag_record_node` — 启动文件存在但源码缺失
-- `MoveToPose.action` — 接口已定义但无节点使用
 - 导航放置路径 — `run_remote_control()` 中 HOLDING → 放置分支被注释
 
 ---
