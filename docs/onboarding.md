@@ -50,9 +50,11 @@ T = ┌        ┐
 - **DH 参数**（Denavit-Hartenberg）—— 用 4 个参数描述相邻关节之间的变换，是机械臂建模的标准方法
 
 **推荐资源：**
-- 中文搜索：`DH参数 机器人学 入门 知乎`、`旋转矩阵 齐次变换 机械臂`
+
+- [bilibili  【机械臂运动学教程】机械臂+旋转矩阵+变换矩阵+DH+逆解+轨迹规划+机器人+教程】](https://www.bilibili.com/video/BV1oa4y1v7TY?vd_source=e45d77178f9cce3b4aede27c01f4f3ab)
 - [3Blue1Brown — Linear Algebra 系列](https://www.youtube.com/playlist?list=PLZHQObOWTQDPD3MizzM2xVFitgF8hE_ab)：直观理解线性变换
 - [Modern Robotics 第 3 章](https://hades.mech.northwestern.edu/index.php/Modern_Robotics)：免费的在线教材，Rigid-Body Motions
+- [Peter Corke — Robotics Toolbox 文档](https://petercorke.com/toolboxes/robotics-toolbox/)：MATLAB/Python 机器人工具箱，有大量示例
 
 #### 本项目的情况
 
@@ -108,8 +110,11 @@ SolidWorks 装配体
 
 **推荐资源：**
 
+- [bilibili  很详细的solidworks导urdf视频](https://www.bilibili.com/video/BV15ur1YfEKr/?spm_id_from=333.1391.0.0&vd_source=9679132188fd3f800f1bf2232d79cb8b)
+- [知乎  很详细的urdf导mjcf，但有部分还需要结合AI食用](https://zhuanlan.zhihu.com/p/576491263)
 - [ROS2 URDF 官方教程](https://docs.ros.org/en/humble/Tutorials/Intermediate/URDF/URDF-Main.html)
-- [SolidWorks to URDF 插件](http://wiki.ros.org/sw_urdf_exporter)（ROS1 时代，但概念通用）
+- [SolidWorks to URDF 插件](http://wiki.ros.org/sw_urdf_exporter)（ROS1 时代，但概念通用）   
+- 可以把xml格式的文件拖到 [https://viewer.robotsfan.com/](https://viewer.robotsfan.com/) 看看形态
 
 #### 本项目的情况
 
@@ -151,17 +156,18 @@ T_world_to_tip = T_0→1 · T_1→2 · T_2→3 · T_3→4 · T_4→5
 **逆向运动学**：给定末端执行器的目标位姿，反算每个关节的角度。
 
 IK 比 FK 难得多，因为：
+
 - 存在多解（肘关节可以向上或向下）
 - 可能无解（目标超出工作空间）
 - 可能有无穷多解（冗余自由度）
 
 **常见方法：**
 
-| 方法 | 原理 | 优缺点 |
-|---|---|---|
-| **解析法** | 几何三角推导，直接算出每个关节角 | 快、准，但只适用于特定构型 |
-| **数值法（雅可比迭代）** | 用雅可比矩阵伪逆迭代逼近 | 通用，但慢、可能不收敛 |
-| **优化法** | 用非线性优化求解 | 灵活，但计算量大 |
+| 方法             | 原理               | 优缺点           |
+| -------------- | ---------------- | ------------- |
+| **解析法**        | 几何三角推导，直接算出每个关节角 | 快、准，但只适用于特定构型 |
+| **数值法（雅可比迭代）** | 用雅可比矩阵伪逆迭代逼近     | 通用，但慢、可能不收敛   |
+| **优化法**        | 用非线性优化求解         | 灵活，但计算量大      |
 
 **推荐资源：**
 
@@ -226,6 +232,7 @@ T(world → object) = T(world → Link_4) · T(Link_4 → camera_link) · T(came
 
 **推荐资源：**
 
+- 可以借鉴项目-手眼标定 https://github.com/RealManRobot/hand_eye_calibration
 - [OpenCV 相机标定教程](https://docs.opencv.org/4.x/dc/dbb/tutorial_py_calibration.html)
 - [手眼标定综述](https://campar.in.tum.de/Chair/HandEyeCalibration) — TUM 的经典综述
 - [ROS2 TF2 教程](https://docs.ros.org/en/humble/Tutorials/Intermediate/Tf2/Tf2-Main.html)
@@ -236,6 +243,7 @@ T(world → object) = T(world → Link_4) · T(Link_4 → camera_link) · T(came
 **外参：** 手眼相机外参已经标定好，填在 `params.yaml` 的 `camera_extrinsics` 中。`control_node` 启动时自动广播这段静态 TF。狗头相机外参同理。
 
 **感知服务：** 感知节点在独立的 "neweyes" workspace 中运行，提供 ROS2 服务：
+
 - `get_pick_pos` — 返回箱子上表面在 `camera_link` 中的位姿
 - `get_place_pos` — 返回方框在 `dog_camera_link` 中的位姿
 
@@ -255,12 +263,12 @@ T(world → object) = T(world → Link_4) · T(Link_4 → camera_link) · T(came
 
 **常见轨迹类型：**
 
-| 类型 | 特点 |
-|---|---|
-| 梯形速度 | 加速 → 匀速 → 减速，简单但加速度不连续 |
-| **五次多项式** | 位置、速度、加速度都连续，平滑 |
-| S 曲线 | 加加速度也连续，更平滑但更复杂 |
-| 样条插值 | 通过多个中间点 |
+| 类型        | 特点                     |
+| --------- | ---------------------- |
+| 梯形速度      | 加速 → 匀速 → 减速，简单但加速度不连续 |
+| **五次多项式** | 位置、速度、加速度都连续，平滑        |
+| S 曲线      | 加加速度也连续，更平滑但更复杂        |
+| 样条插值      | 通过多个中间点                |
 
 **轨迹参数：** 最大速度 `v_max`、最大加速度 `a_max`、轨迹时长 `T`
 
@@ -292,18 +300,22 @@ T(world → object) = T(world → Link_4) · T(Link_4 → camera_link) · T(came
 **a) PD 控制（反馈）**
 
 最基本的反馈控制：
+
 ```
 τ = Kp · (q_des - q_actual) + Kd · (0 - dq_actual)
 ```
+
 - `Kp`（比例增益）：位置误差越大，力矩越大。过大会振荡，过小会有静差
 - `Kd`（微分增益）：阻尼项，抑制振荡。过大会发热，过小会超调
 
 **b) 前馈控制**
 
 PD 只能"等出了误差再修正"。前馈提前算好需要的力矩：
+
 ```
 τ = τ_gravity + τ_friction + τ_PD
 ```
+
 - `τ_gravity`（重力补偿）：用动力学模型算出让机械臂不掉下来需要的力矩
 - `τ_friction`（摩擦力补偿）：`fc · tanh(α · dq) + fv · dq`
 
@@ -314,6 +326,7 @@ RNEA（Recursive Newton-Euler Algorithm）是计算前馈力矩的标准算法�
 **d) 控制模式切换**
 
 不同场景需要不同的增益：
+
 - 手持示教：kp 极低，让人能推动
 - 空载运动：标准增益
 - 带负载：更高增益，提高刚性
@@ -329,10 +342,12 @@ RNEA（Recursive Newton-Euler Algorithm）是计算前馈力矩的标准算法�
 本项目实现了 6 种控制模式（见 [2.4 节](#24-控制模式设计)），前馈用的是 `RNEA(desired) + friction(actual)`。
 
 摩擦力模型：`tau_f = fc · tanh(α · dq) + fv · dq · GearRatio²`
+
 - `tanh` 函数让库伦摩擦在零速附近平滑过渡，避免力矩跳变
 - `GearRatio²` 是因为摩擦力在电机侧，需要折算到关节侧
 
 代码位置：
+
 - `control_node.cpp` — Stack A 的 PD + 前馈控制
 - `inverse_dynamics_node.cpp` — Stack B 的逆动力学控制
 - `dynamics_manager.cpp` — RNEA 和摩擦力计算
@@ -346,6 +361,10 @@ RNEA（Recursive Newton-Euler Algorithm）是计算前馈力矩的标准算法�
 ---
 
 ## Part 2 — 项目实现
+
+[比较全面版-最后调试ed](https://github.com/zhao-max-max/feet-arm1)
+
+[比较陈旧版-最后精简ed](https://github.com/leinie-alien/feet-arm2)
 
 ### 2.1 架构总览
 
@@ -378,11 +397,11 @@ RNEA（Recursive Newton-Euler Algorithm）是计算前馈力矩的标准算法�
 
 **两套控制栈：**
 
-| | Stack A（生产） | Stack B（实验/示教） |
-|---|---|---|
-| 控制器 | `control_node` | `inverse_dynamics_node` |
-| 控制模式 | 4 种 | 6 种（多 teach_pendant、teach_drag） |
-| 启动 | `run_arm.sh` 默认 | `planner_inverse_task_launch.py` |
+|      | Stack A（生产）     | Stack B（实验/示教）                   |
+| ---- | --------------- | -------------------------------- |
+| 控制器  | `control_node`  | `inverse_dynamics_node`          |
+| 控制模式 | 4 种             | 6 种（多 teach_pendant、teach_drag）  |
+| 启动   | `run_arm.sh` 默认 | `planner_inverse_task_launch.py` |
 
 ---
 
@@ -391,6 +410,7 @@ RNEA（Recursive Newton-Euler Algorithm）是计算前馈力矩的标准算法�
 **设计决策：为什么用解析法 IK？**
 
 本项目的 5-DOF 构型中，前 3 个关节（Yaw + Pitch1 + Pitch2）形成平面三连杆，正好可以用余弦定理直接求解。解析法在这个场景下：
+
 - 计算快（几个三角函数，不需要迭代）
 - 不会发散（数值法需要好的初始猜测）
 - 解唯一（肘向下分支，固定取 `q2 = -acos(cos_q2)` 即负值）
@@ -419,6 +439,7 @@ RNEA（Recursive Newton-Euler Algorithm）是计算前馈力矩的标准算法�
 **为什么设计三阶段？**
 
 单次感知 → 直接抓取的问题：
+
 - 瞭望时相机离目标远，位姿估计有误差
 - 一次感知没有机会纠正
 
@@ -450,14 +471,14 @@ Phase 3 — 下降执行（Descend）
 
 6 种模式对应 6 组 PD 增益，设计思路：
 
-| 模式 | 设计目标 | 为什么这样设 |
-|---|---|---|
-| `idle` | 待机省电，允许手动推 | kp 极低，不会跟人"较劲" |
-| `gravity_comp` | 零力示教，手拖机械臂 | 前馈抵消重力，kp≈0 让人能推动 |
-| `moving` | 空载轨迹跟踪 | 中等 kp/kd，兼顾响应和稳定 |
-| `loaded` | 带箱子运动 | 更高 kp，克服箱子惯量，减少静差 |
-| `teach_pendant` | 实时跟随示教器 | 响应快，但不要振荡 |
-| `teach_drag` | 手拖录制轨迹 | kp≈0，完全靠前馈 |
+| 模式              | 设计目标       | 为什么这样设            |
+| --------------- | ---------- | ----------------- |
+| `idle`          | 待机省电，允许手动推 | kp 极低，不会跟人"较劲"    |
+| `gravity_comp`  | 零力示教，手拖机械臂 | 前馈抵消重力，kp≈0 让人能推动 |
+| `moving`        | 空载轨迹跟踪     | 中等 kp/kd，兼顾响应和稳定  |
+| `loaded`        | 带箱子运动      | 更高 kp，克服箱子惯量，减少静差 |
+| `teach_pendant` | 实时跟随示教器    | 响应快，但不要振荡         |
+| `teach_drag`    | 手拖录制轨迹     | kp≈0，完全靠前馈        |
 
 **为什么有 6 组而不是调一组？** 不同场景的物理条件差异太大——空载和带负载需要的刚性完全不同，一组参数没法同时满足。
 
@@ -499,7 +520,8 @@ idle → moving（开始运动）→ loaded（抓取后，高刚性持箱）→ 
 MuJoCo（Multi-Joint dynamics with Contact）是 Google DeepMind 开源的物理仿真引擎，在机器人领域广泛用于训练和调试。本项目用它替代真实硬件进行无风险开发。
 
 **推荐资源：**
-- 中文搜索：`MuJoCo 入门教程 机械臂仿真`
+
+- [bilibili  【MUJOCO 交互教程】](https://www.bilibili.com/video/BV1z8HUzkEHh?vd_source=e45d77178f9cce3b4aede27c01f4f3ab)
 - 英文：[MuJoCo 官方文档](https://mujoco.readthedocs.io/)
 
 #### 本项目仿真模式的工作原理
@@ -517,14 +539,14 @@ MuJoCo（Multi-Joint dynamics with Contact）是 Google DeepMind 开源的物理
 
 #### 仿真 vs 真机对照
 
-| | 真机 | 仿真 |
-|---|---|---|
-| 启动命令 | `bash run_arm.sh` | 终端1: `sim_arm.sh`，终端2: `bash run_arm.sh --sim` |
-| 驱动 | dm_motor_sdk_ros | mujoco_runner |
-| 风险 | 撞机/扯线 | 无 |
-| 速度 | 实时 | 可调 |
-| 传感器 | 真实相机 | 需另外接入 |
-| 摩擦力/动力学 | 真实 | 模型近似 |
+|         | 真机                | 仿真                                             |
+| ------- | ----------------- | ---------------------------------------------- |
+| 启动命令    | `bash run_arm.sh` | 终端1: `sim_arm.sh`，终端2: `bash run_arm.sh --sim` |
+| 驱动      | dm_motor_sdk_ros  | mujoco_runner                                  |
+| 风险      | 撞机/扯线             | 无                                              |
+| 速度      | 实时                | 可调                                             |
+| 传感器     | 真实相机              | 需另外接入                                          |
+| 摩擦力/动力学 | 真实                | 模型近似                                           |
 
 #### 仿真调试小 Tips
 
