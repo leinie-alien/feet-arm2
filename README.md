@@ -33,8 +33,8 @@
 | 机械臂 | 5-DOF 串联臂 | Yaw → Pitch1 → Pitch2 → Pitch3 → Roll |
 | 电机 ×5 | 达妙（Damiao） | CAN/CANFD 通信，USB2CANFD_Dual 适配器 |
 | 末端执行器 | 吸盘 | ESP32-C3 串口控制（`/dev/esp32_suction_c3`） |
-| 手眼相机 | — | 安装在 Link_4，用于抓取目标检测 |
-| 狗头相机 | — | 固定安装，用于放置/叠放目标检测 |
+| 手眼相机 | Intel RealSense D435i | 安装在 Link_4，用于抓取目标检测 |
+| 狗头相机 | Intel RealSense D435i | 固定安装，用于放置/叠放目标检测 |
 | 示教器 | FEETECH HLS3625 ×5 | 可选，用于拖拽示教和姿态录制/回放 |
 
 ---
